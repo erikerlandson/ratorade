@@ -1,0 +1,5 @@
+This directory contains rating data sets.
+
+BrewGeneRatings.dat
+    This file contains 880923 tuples of the form (user, beer, rating, style, brewer) (one tuple per line, tab separated).  All user, beer, style and brewer names have been anonymized to integer ids.  Ratings are integers from 0 to 100.
+    I am very grateful to BrewGene, and in particular Connor Tyrrell, for their generosity in providing this data.
