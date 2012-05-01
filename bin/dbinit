@@ -1,0 +1,81 @@
+#!/bin/env python
+
+# ratorade: Everyone's a critic
+#
+# Copyright (c) 2012 Erik Erlandson
+#
+# Author:  Erik Erlandson <erikerlandson@yahoo.com>
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import sys
+import argparse
+
+import pymongo
+
+# someday I should do something a bit more classy:
+sys.path += ['/home/eje/git/dtools/bin']
+import dtools
+
+argparser = argparse.ArgumentParser()
+argparser.add_argument('file', nargs='?', type=argparse.FileType('r'), default=sys.stdin, metavar='<filename>', help='def= stdin')
+argparser.add_argument('-delim', default=None, metavar='<delimiter>', help='column delimiter: def= whitespace')
+argparser.add_argument('-columns', type=dtools.slicelist_arg, default=[':'], metavar='<slicelist>', help='col slicelist: def= ":", e.g. "1:", "2,3", "1:3,5,7,9:"')
+argparser.add_argument('-rows', type=dtools.slicelist_arg, default=[':'], metavar='<slicelist>', help='row slicelist: def= ":"')
+argparser.add_argument('-attributes', default='header', metavar='<attr-list>', help='def = from-header, "lab1,lab2,..."')
+argparser.add_argument('-dbname', default='rating', metavar='<name>', help='rating db name: def="rating"')
+argparser.add_argument('-collection', default='tuples', metavar='<collection-name>', help='rating tuple collection name: def= "tuples"')
+argparser.add_argument('-dbserver', default='127.0.0.1', metavar='<db-server-ip>', help='def=127.0.0.1')
+argparser.add_argument('-numeric', default='', metavar='<attr-list>', help='list numeric attributes')
+
+
+args = argparser.parse_args()
+useheader = (args.attributes == "header")
+
+numattr = {}
+for a in args.numeric.split(','):
+    numattr[a] = True
+
+sys.stdout.write("establishing db connection to %s\n" % (args.dbserver))
+mongo = pymongo.Connection(args.dbserver)
+sys.stdout.write("dropping %s\n" % (args.dbname))
+mongo.drop_database(args.dbname)
+sys.stdout.write("acquiring %s\n" % (args.dbname))
+mongo_db = mongo[args.dbname]
+sys.stdout.write("creating collection %s\n" % (args.collection))
+tuples = mongo_db[args.collection]
+
+
+sys.stdout.write("reading data...\n")
+data = dtools.load_slice_data(args.file, delim=args.delim, cslice=args.columns, rslice=args.rows)
+
+if useheader:
+    args.attributes = data[0]
+    data = data[1:]
+else:
+    args.attributes = args.attributes.split(',')
+
+if len(args.attributes) != len(data[0]):
+    sys.stderr.write("attributes mismatch with data cols\n")
+    sys.exit(1)
+
+sys.stdout.write("loading data into db...\n")
+
+for d in data:
+    td = {}
+    for (a,v) in zip(args.attributes, d):
+        if numattr.has_key(a):
+            td[a] = dtools.trynum(v)
+        else:
+            td[a] = v
+    tuples.insert(td)
