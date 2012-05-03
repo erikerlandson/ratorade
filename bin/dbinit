@@ -24,6 +24,8 @@ import argparse
 
 import pymongo
 
+import ratorade
+
 # someday I should do something a bit more classy:
 sys.path += ['/home/eje/git/dtools/bin']
 import dtools
@@ -47,15 +49,12 @@ numattr = {}
 for a in args.numeric.split(','):
     numattr[a] = True
 
-sys.stdout.write("establishing db connection to %s\n" % (args.dbserver))
-mongo = pymongo.Connection(args.dbserver)
-sys.stdout.write("dropping %s\n" % (args.dbname))
+mongo = ratorade.require_connection(args.dbserver)
+sys.stdout.write("creating db %s\n" % (args.dbname))
 mongo.drop_database(args.dbname)
-sys.stdout.write("acquiring %s\n" % (args.dbname))
 mongo_db = mongo[args.dbname]
 sys.stdout.write("creating collection %s\n" % (args.collection))
 tuples = mongo_db[args.collection]
-
 
 sys.stdout.write("reading data...\n")
 data = dtools.load_slice_data(args.file, delim=args.delim, cslice=args.columns, rslice=args.rows)
