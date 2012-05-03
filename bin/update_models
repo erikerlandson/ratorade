@@ -23,6 +23,8 @@ import time
 import argparse
 import pymongo
 
+import ratorade
+
 argparser = argparse.ArgumentParser()
 argparser.add_argument('-refresh', default=False, action='store_true', help='refresh all models from scratch')
 argparser.add_argument('-dbname', default='ratorade', metavar='<name>', help='rating db name: def="ratorade"')
@@ -33,17 +35,14 @@ argparser.add_argument('-dbserver', default='127.0.0.1', metavar='<db-server-ip>
 
 args = argparser.parse_args()
 
-sys.stdout.write("establishing db server connection to %s\n" % (args.dbserver))
-mongo = pymongo.Connection(args.dbserver)
+mongo = ratorade.require_connection(args.dbserver)
+ratorade_db = ratorade.require_db(mongo, args.dbname)
 
-sys.stdout.write("acquiring db %s\n" % (args.dbname))
-ratorade_db = mongo[args.dbname]
+# This must exist, since it holds the model input data
+ratings = ratorade.require_collection(ratorade_db, args.ratings)
 
-sys.stdout.write("acquiring collection %s\n" % (args.ratings))
-ratings = ratorade_db[args.ratings]
-sys.stdout.write("acquiring collection %s\n" % (args.models))
+# These can be created silently if they don't already exist
 models = ratorade_db[args.models]
-sys.stdout.write("acquiring collection %s\n" % (args.updates))
 updates = ratorade_db[args.updates]
 
 # maintain an update timestamp
@@ -58,9 +57,6 @@ last_model_update = 0
 if timestamps.has_key("models_updated"):
     last_model_update = timestamps["models_updated"]
 updates.update({"_id":timestamps["_id"]}, {"$set":{"models_updated":time.time()}})
-
-timestamps = updates.find_one({"type":"timestamps"})
-sys.stdout.write("timestamps= %s\n" % (timestamps))
 
 sys.stdout.write("last model update: %d\n" % (last_model_update))
 
@@ -80,3 +76,17 @@ sys.stdout.write("identified %d new ratings\n" % (new_ratings.count()))
 sys.stdout.write("    %d new beers\n" % (len(new_ratings.distinct("beer"))))
 sys.stdout.write("    %d new styles\n" % (len(new_ratings.distinct("style"))))
 sys.stdout.write("    %d new brewers\n" % (len(new_ratings.distinct("brewer"))))
+
+mcount = 0
+tlast = time.time()
+tint = 0
+for r0 in new_ratings:
+    for r1 in ratings.find({"_id":{"$lt":r0["_id"]}}):
+        mcount += 1
+        tt = time.time()
+        tint += tt-tlast
+        tlast = tt
+        if (tint >= 30):
+            sys.stdout.write("total models processed: %d\n" % (mcount))
+            tint -= 30
+        ratorade.update_model_linear(models, r0, r1, id_attr="beer", rating_attr="rating")
