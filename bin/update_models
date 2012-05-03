@@ -1,0 +1,82 @@
+#!/bin/env python
+
+# ratorade: Everyone's a critic
+#
+# Copyright (c) 2012 Erik Erlandson
+#
+# Author:  Erik Erlandson <erikerlandson@yahoo.com>
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import sys
+import time
+import argparse
+import pymongo
+
+argparser = argparse.ArgumentParser()
+argparser.add_argument('-refresh', default=False, action='store_true', help='refresh all models from scratch')
+argparser.add_argument('-dbname', default='ratorade', metavar='<name>', help='rating db name: def="ratorade"')
+argparser.add_argument('-ratings', default='ratings', metavar='<collection-name>', help='rating tuple collection name: def= "ratings"')
+argparser.add_argument('-models', default='models', metavar='<collection-name>', help='model collection name: def= "models"')
+argparser.add_argument('-updates', default='updates', metavar='<collection-name>', help='updates collection name: def= "updates"')
+argparser.add_argument('-dbserver', default='127.0.0.1', metavar='<db-server-ip>', help='def=127.0.0.1')
+
+args = argparser.parse_args()
+
+sys.stdout.write("establishing db server connection to %s\n" % (args.dbserver))
+mongo = pymongo.Connection(args.dbserver)
+
+sys.stdout.write("acquiring db %s\n" % (args.dbname))
+ratorade_db = mongo[args.dbname]
+
+sys.stdout.write("acquiring collection %s\n" % (args.ratings))
+ratings = ratorade_db[args.ratings]
+sys.stdout.write("acquiring collection %s\n" % (args.models))
+models = ratorade_db[args.models]
+sys.stdout.write("acquiring collection %s\n" % (args.updates))
+updates = ratorade_db[args.updates]
+
+# maintain an update timestamp
+timestamps = updates.find_one({"type":"timestamps"})
+if timestamps is None:
+    tsid = updates.insert({"type":"timestamps"})
+    timestamps = updates.find_one({"_id":tsid})
+
+sys.stdout.write("timestamps= %s\n" % (timestamps))
+
+last_model_update = 0
+if timestamps.has_key("models_updated"):
+    last_model_update = timestamps["models_updated"]
+updates.update({"_id":timestamps["_id"]}, {"$set":{"models_updated":time.time()}})
+
+timestamps = updates.find_one({"type":"timestamps"})
+sys.stdout.write("timestamps= %s\n" % (timestamps))
+
+sys.stdout.write("last model update: %d\n" % (last_model_update))
+
+if args.refresh:
+    sys.stdout.write("refreshing model collection %s\n" % (args.models))
+    last_model_update = 0
+    models.drop()
+    models = ratorade_db[args.models]
+
+sys.stdout.write("updating index on update timestamp...\n")
+ratings.ensure_index([("updated",pymongo.ASCENDING)])
+
+# ratings since the last model update
+new_ratings = ratings.find({"updated":{"$gt":last_model_update}})
+
+sys.stdout.write("identified %d new ratings\n" % (new_ratings.count()))
+sys.stdout.write("    %d new beers\n" % (len(new_ratings.distinct("beer"))))
+sys.stdout.write("    %d new styles\n" % (len(new_ratings.distinct("style"))))
+sys.stdout.write("    %d new brewers\n" % (len(new_ratings.distinct("brewer"))))
