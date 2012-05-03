@@ -47,6 +47,7 @@ def require_collection(mongo_db, collection):
     except:
         sys.stderr.write("failed to open collection %s on db %s\n" % (collection, mongo_db.name))
         exit(1)
+    return collection
 
 
 def update_model_linear(models, tnew, tref, id_attr="beer", rating_attr="rating", prev=None):
