@@ -75,8 +75,8 @@ def update_model_linear(models, tnew, tref, id_attr="beer", rating_attr="rating"
     else:
         model["r"] = 0
         model["b01"] = 0
-        model["a01"] 0
+        model["a01"] = 0
         model["b10"] = 0
-        model["a10"] 0
+        model["a10"] = 0
     # store the updated model back into the db collection
     models.update({"_id":model["_id"]}, {"$set":model})
