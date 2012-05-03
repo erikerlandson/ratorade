@@ -19,6 +19,7 @@
 # limitations under the License.
 
 import sys
+import time
 import argparse
 
 import pymongo
@@ -33,8 +34,8 @@ argparser.add_argument('-delim', default=None, metavar='<delimiter>', help='colu
 argparser.add_argument('-columns', type=dtools.slicelist_arg, default=[':'], metavar='<slicelist>', help='col slicelist: def= ":", e.g. "1:", "2,3", "1:3,5,7,9:"')
 argparser.add_argument('-rows', type=dtools.slicelist_arg, default=[':'], metavar='<slicelist>', help='row slicelist: def= ":"')
 argparser.add_argument('-attributes', default='header', metavar='<attr-list>', help='def = from-header, "lab1,lab2,..."')
-argparser.add_argument('-dbname', default='rating', metavar='<name>', help='rating db name: def="rating"')
-argparser.add_argument('-collection', default='tuples', metavar='<collection-name>', help='rating tuple collection name: def= "tuples"')
+argparser.add_argument('-dbname', default='ratorade', metavar='<name>', help='rating db name: def="ratorade"')
+argparser.add_argument('-collection', default='ratings', metavar='<collection-name>', help='rating tuple collection name: def= "ratings"')
 argparser.add_argument('-dbserver', default='127.0.0.1', metavar='<db-server-ip>', help='def=127.0.0.1')
 argparser.add_argument('-numeric', default='', metavar='<attr-list>', help='list numeric attributes')
 
@@ -72,7 +73,7 @@ if len(args.attributes) != len(data[0]):
 sys.stdout.write("loading data into db...\n")
 
 for d in data:
-    td = {}
+    td = {"updated":time.time()}
     for (a,v) in zip(args.attributes, d):
         if numattr.has_key(a):
             td[a] = dtools.trynum(v)
