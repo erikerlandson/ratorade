@@ -19,6 +19,7 @@
 # limitations under the License.
 
 import pymongo
+from math import sqrt
 
 def update_model_linear(models, tnew, tref, id_attr="beer", rating_attr="rating", prev=None):
     # canonically, the lesser id is associated with "0", the other one is "1"
@@ -52,5 +53,30 @@ def update_model_linear(models, tnew, tref, id_attr="beer", rating_attr="rating"
         model[newk+newk] += rnew*rnew
         model[refk+refk] += rref*rref
         model["01"] += rnew*rref
+    # cache latest linear params
+    n = model["n"]
+    s0 = model["0"]
+    s1 = model["1"]
+    s00 = model["00"]
+    s11 = model["11"]
+    s01 = model["01"]
+    nn = n*s01 - s0*s1
+    d0 = n*s00 - s0*s0
+    d1 = n*s11 - s1*s1
+    if ((d0 != 0) and (d1 != 0)):
+        # correlation coefficient:
+        model["r"] = nn / (sqrt(d0) * sqrt(d1))
+        # linear model x1 = b01*x0 + a01
+        model["b01"] = nn / d0
+        model["a01"] = (s1 - model["b01"]*s0)/n
+        # linear model x0 = b10*x1 + a10
+        model["b10"] = nn / d1
+        model["a10"] = (s0 - model["b10"]*s1)/n
+    else:
+        model["r"] = 0
+        model["b01"] = 0
+        model["a01"] 0
+        model["b10"] = 0
+        model["a10"] 0
     # store the updated model back into the db collection
     models.update({"_id":model["_id"]}, {"$set":model})
