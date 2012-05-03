@@ -18,8 +18,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import sys
 import pymongo
 from math import sqrt
+
+def require_connection(dbserver):
+    try:
+        mongo = pymongo.Connection(dbserver)
+    except:
+        sys.stderr.write("failed to connect to db server %s\n" % (dbserver))
+        exit(1)
+    return mongo
+
+def require_db(mongo, dbname):
+    try:
+        if dbname not in mongo.database_names():
+            raise Exception("db does not exist")
+        mongo_db = mongo[dbname]
+    except:
+        sys.stderr.write("failed to open db %s on server %s:%s\n" % (dbname, mongo.host, mongo.port))
+        exit(1)
+    return mongo_db
+
+def require_collection(mongo_db, collection):
+    try:
+        mongo_db.validate_collection(collection)
+        collection = mongo_db[collection]
+    except:
+        sys.stderr.write("failed to open collection %s on db %s\n" % (collection, mongo_db.name))
+        exit(1)
+
 
 def update_model_linear(models, tnew, tref, id_attr="beer", rating_attr="rating", prev=None):
     # canonically, the lesser id is associated with "0", the other one is "1"
