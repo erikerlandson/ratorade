@@ -47,10 +47,21 @@ mongo = ratorade.require_connection(args.dbserver)
 mongo_db = ratorade.require_db(mongo, args.dbname)
 collection = ratorade.require_collection(mongo_db, args.collection)
 
-gres = collection.group(attrlist, None, {'freq':0}, 'function(obj, prev) {prev.freq += 1}')
+# group() has a mysterious limit of 20000 unique keys:
+#gres = collection.group(attrlist, None, {'freq':0}, 'function(obj, prev) {prev.freq += 1}')
+
+# a version using map-reduce:
+gres = ratorade.histogram(collection, attrlist, "_hist", kdelim=args.kdelim).find()
+gres = [dict(zip(attrlist,e['_id'].split(args.kdelim)) + [('freq',e['value'])]) for e in gres]
+
+# order results prior to doing any cumulative stats:
 gsort = sorted(gres, key=lambda D:D[args.sortkey], reverse=args.descending)
+
+# sum of frequencies:
 tfreq = 0
 for e in gsort: tfreq += e['freq']
+
+# compute prob and any cumulative stats:
 cfreq = 0
 count = 0
 ctot = len(gsort)
@@ -72,6 +83,7 @@ if (args.cumulative): args.ofile.write("%scfreq%scprob" % (args.odelim, args.ode
 if (args.counts): args.ofile.write("%scount%scfrac" % (args.odelim, args.odelim))
 args.ofile.write("\n")
 
+# dump the actual data:
 for e in gsort:
     key = args.kdelim.join([e[k] for k in attrlist])
     oline = key

@@ -20,6 +20,7 @@
 
 import sys
 import pymongo
+import bson
 from math import sqrt
 
 def require_connection(dbserver):
@@ -49,6 +50,18 @@ def require_collection(mongo_db, collection):
         exit(1)
     return collection
 
+def histogram(collection, keylist, histname, kdelim=":"):
+    fmap_code = "function() { emit(" + (' + "' + kdelim + '" + ').join(["this."+k for k in keylist]) + ", 1) }"
+    fmap = bson.code.Code(fmap_code)
+    fred = bson.code.Code("function (key, values) {"
+                          "  var total = 0;"
+                          "  for (var i = 0; i < values.length; i++) {"
+                          "    total += values[i];"
+                          "  }"
+                          "  return total;"
+                          "}")
+    hist = collection.map_reduce(fmap, fred, histname)
+    return hist
 
 def update_model_linear(models, tnew, tref, id_attr="beer", rating_attr="rating", prev=None):
     # canonically, the lesser id is associated with "0", the other one is "1"
