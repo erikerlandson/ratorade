@@ -73,9 +73,9 @@ def update_model_linear(models, tnew, tref, id_attr="beer", rating_attr="rating"
         refk = "0"
     # retrieve the current model, or create a new one
     # these are unique
-    model = models.find_one({"type":"linear", "id_attr":id_attr, "rating_attr":rating_attr, "pair":{newk:tnew[id_attr], refk:tref[id_attr]}})
+    model = models.find_one({"pair":{newk:tnew[id_attr], refk:tref[id_attr]}, "type":"linear", "id_attr":id_attr, "rating_attr":rating_attr})
     if model is None:
-        mid = models.insert({"type":"linear", "id_attr":id_attr, "rating_attr":rating_attr, "pair":{newk:tnew[id_attr], refk:tref[id_attr]}, "n":0.0, "0":0.0, "1":0.0, "00":0.0, "11":0.0, "01":0.0})
+        mid = models.insert({"pair":{newk:tnew[id_attr], refk:tref[id_attr]}, "type":"linear", "id_attr":id_attr, "rating_attr":rating_attr, "n":0.0, "0":0.0, "1":0.0, "00":0.0, "11":0.0, "01":0.0})
         model = models.find_one({"_id":mid})
     if prev is not None:
         # altering an existing pairwise stat

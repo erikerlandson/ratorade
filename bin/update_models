@@ -77,6 +77,8 @@ sys.stdout.write("    %d new beers\n" % (len(new_ratings.distinct("beer"))))
 sys.stdout.write("    %d new styles\n" % (len(new_ratings.distinct("style"))))
 sys.stdout.write("    %d new brewers\n" % (len(new_ratings.distinct("brewer"))))
 
+models.ensure_index([("pair", pymongo.ASCENDING)])
+
 mcount = 0
 tlast = time.time()
 tint = 0
