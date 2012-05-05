@@ -20,6 +20,7 @@
 
 import sys
 import time
+import random
 import argparse
 
 import pymongo
@@ -40,6 +41,7 @@ argparser.add_argument('-dbname', default='ratorade', metavar='<name>', help='ra
 argparser.add_argument('-collection', default='ratings', metavar='<collection-name>', help='rating tuple collection name: def= "ratings"')
 argparser.add_argument('-dbserver', default='127.0.0.1', metavar='<db-server-ip>', help='def=127.0.0.1')
 argparser.add_argument('-numeric', default='', metavar='<attr-list>', help='list numeric attributes')
+argparser.add_argument('-randkeys', type=int, default=0, metavar='<N>', help='generate N random keys "rk0", "rk1", ... for random sampling: def= 0')
 
 
 args = argparser.parse_args()
@@ -73,6 +75,8 @@ sys.stdout.write("loading data into db...\n")
 
 for d in data:
     td = {"updated":time.time()}
+    for j in xrange(args.randkeys):
+        td["rk%d"%(j)] = random.random()
     for (a,v) in zip(args.attributes, d):
         if numattr.has_key(a):
             td[a] = dtools.trynum(v)
