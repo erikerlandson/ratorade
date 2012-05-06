@@ -19,9 +19,11 @@
 # limitations under the License.
 
 import sys
+import random
+from math import sqrt
+
 import pymongo
 import bson
-from math import sqrt
 
 def require_connection(dbserver):
     try:
@@ -63,7 +65,17 @@ def histogram(collection, keylist, histname, kdelim=":"):
     hist = collection.map_reduce(fmap, fred, histname)
     return hist
 
-def update_model_linear(models, tnew, tref, id_attr="beer", rating_attr="rating", prev=None):
+
+def random_sampling_query(p, rk0="rk0", rk1="rk1", pad = 0):
+    d = (1.0 - sqrt(1.0-p)) * (1.0 + pad)
+    if d > 1.0: d = 1.0
+    if d < 0.0: d = 0.0
+    s0 = random.random()*(1.0 - d)
+    s1 = random.random()*(1.0 - d)
+    return {"$or":[{rk0:{"$gte":s0, "$lt":s0+d}}, {rk1:{"$gte":s1, "$lt":s1+d}}]}
+
+
+def update_model_linear(models, tnew, tref, id_attr="***undef***", rating_attr="***undef***", prev=None):
     # canonically, the lesser id is associated with "0", the other one is "1"
     if (tnew[id_attr] <= tref[id_attr]):
         newk = "0"
