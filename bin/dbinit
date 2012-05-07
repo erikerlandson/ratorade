@@ -43,7 +43,7 @@ argparser.add_argument('-dbserver', default='127.0.0.1', metavar='<db-server-ip>
 argparser.add_argument('-numeric', default='', metavar='<attr-list>', help='list numeric attributes')
 argparser.add_argument('-randkeys', type=int, default=0, metavar='<N>', help='generate N random keys "rk0", "rk1", ... for random sampling: def= 0')
 argparser.add_argument('-crossval', type=int, default=0, metavar='<N>', help='partition randomly into N crossval folds 0...(N-1)')
-argparser.add_argument('-cvattr', default="cvf" metavar='<attr>', help='use "attr" for crossval fold: def= "cvf"')
+argparser.add_argument('-cvattr', default="cvf", metavar='<attr>', help='use "attr" for crossval fold: def= "cvf"')
 
 args = argparser.parse_args()
 useheader = (args.attributes == "header")
