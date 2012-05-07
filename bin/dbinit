@@ -42,14 +42,11 @@ argparser.add_argument('-collection', default='ratings', metavar='<collection-na
 argparser.add_argument('-dbserver', default='127.0.0.1', metavar='<db-server-ip>', help='def=127.0.0.1')
 argparser.add_argument('-numeric', default='', metavar='<attr-list>', help='list numeric attributes')
 argparser.add_argument('-randkeys', type=int, default=0, metavar='<N>', help='generate N random keys "rk0", "rk1", ... for random sampling: def= 0')
-
+argparser.add_argument('-crossval', type=int, default=0, metavar='<N>', help='partition randomly into N crossval folds 0...(N-1)')
+argparser.add_argument('-cvattr', default="cvf" metavar='<attr>', help='use "attr" for crossval fold: def= "cvf"')
 
 args = argparser.parse_args()
 useheader = (args.attributes == "header")
-
-numattr = {}
-for a in args.numeric.split(','):
-    numattr[a] = True
 
 mongo = ratorade.require_connection(args.dbserver)
 sys.stdout.write("creating db %s\n" % (args.dbname))
@@ -71,12 +68,21 @@ if len(args.attributes) != len(data[0]):
     sys.stderr.write("attributes mismatch with data cols\n")
     sys.exit(1)
 
+numattr = {}
+for a in args.numeric.split(','):
+    if a not in args.attributes:
+        sys.stderr.write("numeric attribute %s not in attribute list\n" % (a))
+        sys.exit(1)
+    numattr[a] = True
+
 sys.stdout.write("loading data into db...\n")
 
 for d in data:
     td = {"updated":time.time()}
     for j in xrange(args.randkeys):
         td["rk%d"%(j)] = random.random()
+    if args.crossval > 0:
+        td[args.cvattr] = random.randint(0,args.crossval-1)
     for (a,v) in zip(args.attributes, d):
         if numattr.has_key(a):
             td[a] = dtools.trynum(v)
