@@ -20,15 +20,20 @@
 
 import sys
 import time
+import random
 import argparse
 import pymongo
 
 import ratorade
 
 argparser = argparse.ArgumentParser()
+argparser.add_argument('-rate', required=True, metavar='<attr-name>', help='attr containing item categories that are being rated')
+argparser.add_argument('-rating', default='rating', metavar='<attr-name>', help='attr containing ratings/scores: def="rating"')
+argparser.add_argument('-minratings', type=int, default=5, metavar='<N>', help='require at least N ratings to generate a model: def= 5')
+argparser.add_argument('-targettime', type=int, default=3600, metavar='<seconds>', help='target total update time: def= 3600')
 argparser.add_argument('-refresh', default=False, action='store_true', help='refresh all models from scratch')
 argparser.add_argument('-dbname', default='ratorade', metavar='<name>', help='rating db name: def="ratorade"')
-argparser.add_argument('-ratings', default='ratings', metavar='<collection-name>', help='rating tuple collection name: def= "ratings"')
+argparser.add_argument('-data', default='ratings', metavar='<collection-name>', help='rating data collection name: def= "ratings"')
 argparser.add_argument('-models', default='models', metavar='<collection-name>', help='model collection name: def= "models"')
 argparser.add_argument('-updates', default='updates', metavar='<collection-name>', help='updates collection name: def= "updates"')
 argparser.add_argument('-dbserver', default='127.0.0.1', metavar='<db-server-ip>', help='def=127.0.0.1')
@@ -39,7 +44,7 @@ mongo = ratorade.require_connection(args.dbserver)
 ratorade_db = ratorade.require_db(mongo, args.dbname)
 
 # This must exist, since it holds the model input data
-ratings = ratorade.require_collection(ratorade_db, args.ratings)
+data = ratorade.require_collection(ratorade_db, args.data)
 
 # These can be created silently if they don't already exist
 models = ratorade_db[args.models]
@@ -50,8 +55,6 @@ timestamps = updates.find_one({"type":"timestamps"})
 if timestamps is None:
     tsid = updates.insert({"type":"timestamps"})
     timestamps = updates.find_one({"_id":tsid})
-
-sys.stdout.write("timestamps= %s\n" % (timestamps))
 
 last_model_update = 0
 if timestamps.has_key("models_updated"):
@@ -66,29 +69,50 @@ if args.refresh:
     models.drop()
     models = ratorade_db[args.models]
 
-sys.stdout.write("updating index on update timestamp...\n")
-ratings.ensure_index([("updated",pymongo.ASCENDING)])
+sys.stdout.write("updating data indexes...\n")
+data.ensure_index([("updated", pymongo.ASCENDING)])
+data.ensure_index([(args.rate, pymongo.ASCENDING)])
+data.ensure_index([("rk0", pymongo.ASCENDING)])
+data.ensure_index([("rk1", pymongo.ASCENDING)])
 
 # ratings since the last model update
-new_ratings = ratings.find({"updated":{"$gt":last_model_update}})
+sys.stdout.write("identifying new ratings...\n")
+new_ratings = data.find({"updated":{"$gt":last_model_update}}, timeout=False)
+nr = new_ratings.count()
+sys.stdout.write("identified %d new ratings\n" % (nr))
 
-sys.stdout.write("identified %d new ratings\n" % (new_ratings.count()))
-sys.stdout.write("    %d new beers\n" % (len(new_ratings.distinct("beer"))))
-sys.stdout.write("    %d new styles\n" % (len(new_ratings.distinct("style"))))
-sys.stdout.write("    %d new brewers\n" % (len(new_ratings.distinct("brewer"))))
-
+# This is important for performance
+sys.stdout.write("updating model index...\n")
 models.ensure_index([("pair", pymongo.ASCENDING)])
 
+# We need a census of categories to implement some efficiencies
+sys.stdout.write("assessing histogram over %s...\n" % (args.rate))
+uniq = data.distinct(args.rate)
+uhist = dict([(k, data.find({args.rate:k}).count()) for k in uniq])
+
+sys.stdout.write("updating models for %s...\n" % (args.rate))
 mcount = 0
 tlast = time.time()
+t0 = tlast
 tint = 0
+nrdone = 0
+fsamp = min(1.0, 1000.0/float(nr))
 for r0 in new_ratings:
-    for r1 in ratings.find({"_id":{"$lt":r0["_id"]}}):
+    nrdone += 1
+    # require a minimum number of ratings for this category to bother generating a model
+    if uhist[r0[args.rate]] < args.minratings: continue
+    query = ratorade.random_sampling_query(fsamp)
+    query["_id"] = {"$lt":r0["_id"]}
+    qres = data.find(query)
+    for r1 in qres:
+        if uhist[r1[args.rate]] < args.minratings: continue
+        ratorade.update_model_linear(models, r0, r1, id_attr=args.rate, rating_attr=args.rating)
         mcount += 1
-        tt = time.time()
-        tint += tt-tlast
-        tlast = tt
-        if (tint >= 30):
-            sys.stdout.write("total models processed: %d\n" % (mcount))
-            tint -= 30
-        ratorade.update_model_linear(models, r0, r1, id_attr="beer", rating_attr="rating")
+    tt = time.time()
+    tint += tt-tlast
+    tlast = tt
+    if (tint >= 30):
+        elapsed = float(tt - t0)
+        fsamp *= (float(nrdone)/float(nr)) / (elapsed/float(args.targettime))
+        sys.stdout.write("elapsed: %d  new ratings: %d/%d  rate: %g  total model updates: %d  update rate: %g  fsamp= %g\n" % (int(elapsed), nrdone, nr, float(nrdone)/float(elapsed), mcount, float(mcount)/float(tt-t0), fsamp))
+        tint -= 30
