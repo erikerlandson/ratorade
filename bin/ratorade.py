@@ -65,6 +65,27 @@ def histogram(collection, keylist, histname, kdelim=":"):
     hist = collection.map_reduce(fmap, fred, histname)
     return hist
 
+def minimum_value(collection, key, resname):
+    fmap = bson.code.Code("function() { emit(\"min\", this." + key + ") }")
+    fred = bson.code.Code("function (key, values) {"
+                          "  var vmin = values[0];"
+                          "  for (var i = 1; i < values.length; i++) {"
+                          "    vmin = Math.min(vmin,values[i]);"
+                          "  }"
+                          "  return vmin;"
+                          "}")
+    return collection.map_reduce(fmap, fred, resname)
+
+def maximum_value(collection, key, resname):
+    fmap = bson.code.Code("function() { emit(\"max\", this." + key + ") }")
+    fred = bson.code.Code("function (key, values) {"
+                          "  var vmax = values[0];"
+                          "  for (var i = 1; i < values.length; i++) {"
+                          "    vmax = Math.max(vmax,values[i]);"
+                          "  }"
+                          "  return vmax;"
+                          "}")
+    return collection.map_reduce(fmap, fred, resname)
 
 def random_sampling_query(p, rk0="rk0", rk1="rk1", pad = 0):
     d = (1.0 - sqrt(1.0-p)) * (1.0 + pad)
@@ -133,4 +154,4 @@ def update_model_linear(models, tnew, tref, id_attr="***undef***", rating_attr="
         model["b10"] = 0
         model["a10"] = 0
     # store the updated model back into the db collection
-    models.update({"_id":model["_id"]}, {"$set":model})
+    models.save(model)
