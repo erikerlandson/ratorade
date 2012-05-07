@@ -52,7 +52,7 @@ collection = ratorade.require_collection(mongo_db, args.collection)
 
 # a version using map-reduce:
 gres = ratorade.histogram(collection, attrlist, "_hist", kdelim=args.kdelim).find()
-gres = [dict(zip(attrlist,e['_id'].split(args.kdelim)) + [('freq',e['value'])]) for e in gres]
+gres = [dict(zip(attrlist,str(e['_id']).split(args.kdelim)) + [('freq',e['value'])]) for e in gres]
 
 # order results prior to doing any cumulative stats:
 gsort = sorted(gres, key=lambda D:D[args.sortkey], reverse=args.descending)
