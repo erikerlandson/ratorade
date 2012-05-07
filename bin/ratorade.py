@@ -141,17 +141,17 @@ def update_model_linear(models, tnew, tref, id_attr="***undef***", rating_attr="
     if ((d0 != 0) and (d1 != 0)):
         # correlation coefficient:
         model["r"] = nn / (sqrt(d0) * sqrt(d1))
-        # linear model x1 = b01*x0 + a01
-        model["b01"] = nn / d0
-        model["a01"] = (s1 - model["b01"]*s0)/n
-        # linear model x0 = b10*x1 + a10
-        model["b10"] = nn / d1
-        model["a10"] = (s0 - model["b10"]*s1)/n
+        # linear model x1 = a0*x0 + b0
+        model["a0"] = nn / d0
+        model["b0"] = (s1 - model["a0"]*s0)/n
+        # linear model x0 = a1*x1 + b1
+        model["a1"] = nn / d1
+        model["b1"] = (s0 - model["a1"]*s1)/n
     else:
         model["r"] = 0
-        model["b01"] = 0
-        model["a01"] = 0
-        model["b10"] = 0
-        model["a10"] = 0
+        model["a0"] = 0
+        model["b0"] = 0
+        model["a1"] = 0
+        model["b1"] = 0
     # store the updated model back into the db collection
     models.save(model)
