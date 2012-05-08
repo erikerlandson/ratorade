@@ -20,7 +20,7 @@
 
 import sys
 import random
-from math import sqrt
+from math import sqrt, floor
 
 import pymongo
 import bson
@@ -102,6 +102,94 @@ def maximum_value(collection, key, resname):
                           "  return vmax;"
                           "}")
     return collection.map_reduce(fmap, fred, resname)
+
+
+def histogram_to_collection(collection, keylist, histname, bins={}, where={}, sortkey='freq', prob=False, cumulative=False, counts=False, sortdir=pymongo.DESCENDING, sample=0):
+    # start with fresh collection:
+    collection.database.drop_collection(histname)
+    hist = collection.database[histname]
+    min_scan = []
+    max_scan = []
+    # identify any binning keys that need min/max values:
+    for a in bins.keys():
+        if a not in keylist:
+            em = "binning key %s not in %s" % (a, keylist)
+            raise Exception(em)
+        if (not bins[a].has_key('bins')) or (type(bins[a]['bins']) != int):
+            em = "binning key %s requires integer 'bins' entry" % (a)
+            raise Exception(em)
+        if not bins[a].has_key('min'): min_scan += [a]
+        else: bins[a]['min'] = float(bins[a]['min'])
+        if not bins[a].has_key('max'): max_scan += [a]
+        else: bins[a]['max'] = float(bins[a]['max'])
+    # include random sampling if requested:
+    sq = None
+    use_limit = 0
+    if sample >= 1:
+        sq = random_sampling_query(float(sample) / float(collection.count()), pad=0.1)
+        use_limit = int(sample)
+    elif sample > 0:
+        sq = random_sampling_query(sample)
+    if sq is not None:
+        where = dict(list(where.items())+list(sq.items()))
+    # if we need to, scan the data to determin min/max values:
+    if (len(min_scan)+len(max_scan)) > 0:
+        efirst = True
+        if use_limit > 0:  curs = collection.find(where,fields=keylist).limit(use_limit)
+        else:              curs = collection.find(where,fields=keylist)
+        for e in curs:
+            if efirst:
+                for a in min_scan: bins[a]['min'] = e[a]
+                for a in max_scan: bins[a]['max'] = e[a]
+                efirst = False
+            for a in min_scan: bins[a]['min'] = min(e[a], bins[a]['min'])
+            for a in max_scan: bins[a]['max'] = max(e[a], bins[a]['max'])
+    # determine bin widths:
+    for a in bins.keys():
+        d = bins[a]['max'] - bins[a]['min']
+        if d <= 0:
+            em = "max <= min for %s" % (a)
+            raise Exception(em)
+        bins[a]['w'] = d/float(bins[a]['bins'])
+    # iterate over the data and do the histogramming:
+    if use_limit > 0: qres = collection.find(where, fields=keylist).limit(use_limit)
+    else:             qres = collection.find(where, fields=keylist)
+    ftot = qres.count(True)
+    for e in qres:
+        hk = {}
+        for k in keylist:
+            if bins.has_key(k):
+                hk[k] = floor((float(e[k])-bins[k]['min'])/bins[k]['w'])*bins[k]['w'] + bins[k]['min']
+            else:
+                hk[k] = e[k]
+        # either increments freq, or creates new entry w/ freq = 1:
+        hist.update({'_id':hk}, {'$inc':{'freq':1}}, True)
+    # fill in optional fields like prob, cfreq, cprob, etc:
+    if prob or cumulative or counts:
+        if sortkey in keylist:
+            hres = hist.find().sort([("_id."+sortkey, sortdir)])
+        else:
+            hres = hist.find().sort([(sortkey, sortdir)])
+        htot = hres.count()
+        count = 0
+        cfreq = 0
+        for h in hres:
+            freq = h['freq']
+            up = {}
+            if prob:
+                up['prob'] = float(freq)/float(ftot)
+            if cumulative:
+                cfreq += freq
+                up['cfreq'] = cfreq
+                up['cprob'] = float(cfreq)/float(ftot)
+            if counts:
+                count += 1
+                up['count'] = count
+                up['cfrac'] = float(count)/float(htot)
+            hist.update({'_id':h['_id']}, {'$set':up})
+    # return the collection we built the histogram in:
+    return hist
+
 
 def random_sampling_query(p, rk0="rk0", rk1="rk1", pad = 0):
     d = (1.0 - sqrt(1.0-p)) * (1.0 + pad)
