@@ -52,8 +52,24 @@ def require_collection(mongo_db, collection):
         exit(1)
     return collection
 
-def histogram(collection, keylist, histname, kdelim=":"):
-    fmap_code = "function() { emit(" + (' + "' + kdelim + '" + ').join(["this."+k for k in keylist]) + ", 1) }"
+def histogram(collection, keylist, histname, kdelim=":", numeric=False, bins=0, kmin=None, kmax=None):
+    if bins>0: numeric=True
+    if numeric and (len(keylist) > 1):
+        raise Exception("only one numeric histogram key is allowed")
+    if bins > 0:
+        if kmin is None:
+            kkmin = minimum_value(collection, keylist[0], "_work"+histname).find_one()['value']
+        else:
+            kkmin = kmin
+        if kmax is None:
+            kkmax = maximum_value(collection, keylist[0], "_work"+histname).find_one()['value']
+        else:
+            kkmax = kmax
+    if numeric and (bins > 0):
+        binw = (kkmax-kkmin)/float(bins)
+        fmap_code = "function() { emit(Math.floor((this." + keylist[0] + " - " + str(kkmin) + ")/"+str(binw)+")*" + str(binw) + " + " + str(kkmin) + ", 1) }"
+    else:
+        fmap_code = "function() { emit(" + (' + "' + kdelim + '" + ').join(["this."+k for k in keylist]) + ", 1) }"
     fmap = bson.code.Code(fmap_code)
     fred = bson.code.Code("function (key, values) {"
                           "  var total = 0;"
