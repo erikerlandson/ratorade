@@ -83,11 +83,11 @@ models.ensure_index([("pair", pymongo.ASCENDING)])
 # We need a census of categories to implement some efficiencies
 sys.stdout.write("assessing histogram over %s...\n" % (args.rate))
 uniq = data.distinct(args.rate)
-uhist = dict([(k, data.find({args.rate:k}).count()) for k in uniq])
+uhist = dict([(k, data.find({args.rate:k}).count(),fields=[args.rate]) for k in uniq])
 
 # ratings since the last model update
 sys.stdout.write("identifying new ratings...\n")
-new_ratings = data.find({"updated":{"$gt":last_model_update}}, timeout=False)
+new_ratings = data.find({"updated":{"$gt":last_model_update},fields=[args.rate,args.rating]}, timeout=False)
 nr = new_ratings.count()
 sys.stdout.write("identified %d new ratings\n" % (nr))
 
@@ -102,11 +102,10 @@ for r0 in new_ratings:
     nrdone += 1
     # require a minimum number of ratings for this category to bother generating a model
     if uhist[r0[args.rate]] < args.minratings: continue
-
     query = ratorade.random_sampling_query(fsamp)
     query["_id"] = {"$lt":r0["_id"]}
     query[args.user] = r0[args.user]
-    qres = data.find(query).hint([(args.user, pymongo.ASCENDING)])
+    qres = data.find(query,fields=[args.rate,args.rating]).hint([(args.user, pymongo.ASCENDING)])
     for r1 in qres:
         if uhist[r1[args.rate]] < args.minratings: continue
         ratorade.update_model_linear(models, r0, r1, id_attr=args.rate, rating_attr=args.rating)
