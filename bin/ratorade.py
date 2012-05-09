@@ -104,6 +104,19 @@ def maximum_value(collection, key, resname):
     return collection.map_reduce(fmap, fred, resname)
 
 
+def query_attributes(query):
+    attr = set()
+    if type(query) == dict:
+        for k in query.keys():
+            attr |= set(query_attributes(query[k]))
+            if k[0] == '$': continue
+            attr.add(k)
+        return list(attr)
+    elif type(query) == list:
+        for e in query:
+            attr |= set(query_attributes(e))
+    return attr
+
 def histogram_to_collection(collection, keylist, histname, bins={}, where={}, sortkey='freq', prob=False, cumulative=False, counts=False, sortdir=pymongo.DESCENDING, sample=0):
     # start with fresh collection:
     collection.database.drop_collection(histname)

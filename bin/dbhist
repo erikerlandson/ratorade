@@ -101,6 +101,10 @@ mongo = ratorade.require_connection(args.dbserver)
 mongo_db = ratorade.require_db(mongo, args.dbname)
 collection = ratorade.require_collection(mongo_db, args.collection)
 
+where_attr = ratorade.query_attributes(where_expr)
+for k in where_attr:
+    collection.ensure_index([(k, pymongo.ASCENDING)])
+
 # compute the histogram
 hist = ratorade.histogram_to_collection(collection, attrlist, args.histname, prob=True, cumulative=args.cumulative, counts=args.counts, sortkey=args.sort, sortdir=sortdir, bins=bins, where=where_expr, sample=args.sample)
 
