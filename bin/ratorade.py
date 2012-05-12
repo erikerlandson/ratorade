@@ -204,6 +204,10 @@ def histogram_to_collection(collection, keylist, histname, bins={}, where={}, so
     return hist
 
 
+def inverse_quantile(hist, q, cprob='cprob'):
+    return list(hist.find({cprob:{"$gte": q}}).sort([(cprob, pymongo.ASCENDING)]).limit(1))[0]
+
+
 def random_sampling_query(p, rk0="rk0", rk1="rk1", pad = 0):
     d = (1.0 - sqrt(1.0-p)) * (1.0 + pad)
     if d > 1.0: d = 1.0
@@ -213,7 +217,7 @@ def random_sampling_query(p, rk0="rk0", rk1="rk1", pad = 0):
     return {"$or":[{rk0:{"$gte":s0, "$lt":s0+d}}, {rk1:{"$gte":s1, "$lt":s1+d}}]}
 
 
-def update_model_linear(models, tnew, tref, id_attr="***undef***", rating_attr="***undef***", prev=None):
+def update_stats_linear(models, tnew, tref, id_attr="***undef***", rating_attr="***undef***", prev=None):
     # canonically, the lesser id is associated with "0", the other one is "1"
     if (tnew[id_attr] <= tref[id_attr]):
         newk = "0"
@@ -221,54 +225,44 @@ def update_model_linear(models, tnew, tref, id_attr="***undef***", rating_attr="
     else:
         newk = "1"
         refk = "0"
-    # retrieve the current model, or create a new one
-    # these are unique
-    model = models.find_one({"pair":{newk:tnew[id_attr], refk:tref[id_attr]}, "type":"linear", "id_attr":id_attr, "rating_attr":rating_attr})
-    if model is None:
-        mid = models.insert({"pair":{newk:tnew[id_attr], refk:tref[id_attr]}, "type":"linear", "id_attr":id_attr, "rating_attr":rating_attr, "n":0.0, "0":0.0, "1":0.0, "00":0.0, "11":0.0, "01":0.0})
-        model = models.find_one({"_id":mid})
     if prev is not None:
         # altering an existing pairwise stat
         rnew = tnew[rating_attr]
         rprv = prev[rating_attr]
         rref = tref[rating_attr]
-        model[newk] += rnew - rprv
-        model[newk+newk] += (rnew*rnew) - (rprv*rprv)
-        model["01"] += (rnew - rprv)*rref
+        models.update({'_id':{"k"+newk:tnew[id_attr], "k"+refk:tref[id_attr]}}, {'$inc':{"s"+newk:rnew-rprv, "s"+newk+newk:(rnew*rnew) - (rprv*rprv), "s01":(rnew - rprv)*rref}})
     else:
         # adding a new pairwise stat
         rnew = tnew[rating_attr]
         rref = tref[rating_attr]
-        model["n"] += 1
-        model[newk] += rnew
-        model[refk] += rref
-        model[newk+newk] += rnew*rnew
-        model[refk+refk] += rref*rref
-        model["01"] += rnew*rref
+        models.update({'_id':{"k"+newk:tnew[id_attr], "k"+refk:tref[id_attr]}}, {'$inc':{"n":1, "s"+newk:rnew, "s"+refk:rref, "s"+newk+newk:rnew*rnew, "s"+refk+refk:rref*rref, "s01":rnew*rref}}, True)
+
+
+def update_coeff_linear(models, model):
     # cache latest linear params
     n = model["n"]
-    s0 = model["0"]
-    s1 = model["1"]
-    s00 = model["00"]
-    s11 = model["11"]
-    s01 = model["01"]
+    s0 = model["s0"]
+    s1 = model["s1"]
+    s00 = model["s00"]
+    s11 = model["s11"]
+    s01 = model["s01"]
     nn = n*s01 - s0*s1
     d0 = n*s00 - s0*s0
     d1 = n*s11 - s1*s1
     if ((d0 != 0) and (d1 != 0)):
         # correlation coefficient:
-        model["r"] = nn / (sqrt(d0) * sqrt(d1))
+        r = nn / (sqrt(d0) * sqrt(d1))
         # linear model x1 = a0*x0 + b0
-        model["a0"] = nn / d0
-        model["b0"] = (s1 - model["a0"]*s0)/n
+        a0 = nn / d0
+        b0 = (s1 - a0*s0)/n
         # linear model x0 = a1*x1 + b1
-        model["a1"] = nn / d1
-        model["b1"] = (s0 - model["a1"]*s1)/n
+        a1 = nn / d1
+        b1 = (s0 - a1*s1)/n
     else:
-        model["r"] = 0
-        model["a0"] = 0
-        model["b0"] = 0
-        model["a1"] = 0
-        model["b1"] = 0
+        r = 0
+        a0 = 0
+        b0 = 0
+        a1 = 0
+        b1 = 0
     # store the updated model back into the db collection
-    models.save(model)
+    models.update({'_id':model['_id']}, {'$set':{"r":r, "rr":r*r, "a0":a0, "b0":b0, "a1":a1, "b1":b1}})

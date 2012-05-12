@@ -41,6 +41,8 @@ argparser.add_argument('-dbserver', default='127.0.0.1', metavar='<db-server-ip>
 
 args = argparser.parse_args()
 
+t00 = time.time()
+
 mongo = ratorade.require_connection(args.dbserver)
 ratorade_db = ratorade.require_db(mongo, args.dbname)
 
@@ -77,21 +79,18 @@ data.ensure_index([(args.user, pymongo.ASCENDING)])
 data.ensure_index([("rk0", pymongo.ASCENDING)])
 data.ensure_index([("rk1", pymongo.ASCENDING)])
 
-sys.stdout.write("updating model index...\n")
-models.ensure_index([("pair", pymongo.ASCENDING)])
-
 # We need a census of categories to implement some efficiencies
 sys.stdout.write("assessing histogram over %s...\n" % (args.rate))
 uniq = data.distinct(args.rate)
-uhist = dict([(k, data.find({args.rate:k}).count(),fields=[args.rate]) for k in uniq])
+uhist = dict([(k, data.find({args.rate:k}, fields=[args.rate]).count()) for k in uniq])
 
 # ratings since the last model update
 sys.stdout.write("identifying new ratings...\n")
-new_ratings = data.find({"updated":{"$gt":last_model_update},fields=[args.rate,args.rating]}, timeout=False)
+new_ratings = data.find({"updated":{"$gt":last_model_update}}, fields=[args.user, args.rate, args.rating], timeout=False)
 nr = new_ratings.count()
 sys.stdout.write("identified %d new ratings\n" % (nr))
 
-sys.stdout.write("updating models for %s...\n" % (args.rate))
+sys.stdout.write("updating models stats for %s...\n" % (args.rate))
 mcount = 0
 tlast = time.time()
 t0 = tlast
@@ -108,14 +107,26 @@ for r0 in new_ratings:
     qres = data.find(query,fields=[args.rate,args.rating]).hint([(args.user, pymongo.ASCENDING)])
     for r1 in qres:
         if uhist[r1[args.rate]] < args.minratings: continue
-        ratorade.update_model_linear(models, r0, r1, id_attr=args.rate, rating_attr=args.rating)
+        ratorade.update_stats_linear(models, r0, r1, id_attr=args.rate, rating_attr=args.rating)
         mcount += 1
     tt = time.time()
     tint += tt-tlast
     tlast = tt
     if (tint >= 30):
         elapsed = float(tt - t0)
-        fsamp *= (float(nrdone)/float(nr)) / (elapsed/float(args.targettime))
+        nrate = float(nrdone)/float(elapsed)
+        ettc = float(nr-nrdone)/nrate
+        remaining = args.targettime-elapsed
+        if remaining <= 0: break
+        fsamp *= remaining / ettc
         fsamp = min(1.0,fsamp)
-        sys.stdout.write("elapsed: %d  new ratings: %d/%d  rate: %g  total model updates: %d  update rate: %g  fsamp= %g\n" % (int(elapsed), nrdone, nr, float(nrdone)/float(elapsed), mcount, float(mcount)/float(tt-t0), fsamp))
+        sys.stdout.write("elapsed: %d  new: %d/%d  rate: %g  ettc: %d  models:%d  updates: %d  update rate: %g  fsamp: %g\n" % (int(elapsed), nrdone, nr, nrate, int(ettc), models.count(), mcount, float(mcount)/elapsed, fsamp))
         tint -= 30
+
+sys.stdout.write("updating %d model coefficients for %s...\n" % (models.count(), args.rate))
+t0 = time.time()
+for m in models.find():
+    ratorade.update_coeff_linear(models, m)
+sys.stdout.write("time to update coeff: %d sec\n" % (int(time.time()-t0)))
+
+sys.stdout.write("total run time: %d sec\n" % (int(time.time()-t00)))
