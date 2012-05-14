@@ -1,0 +1,39 @@
+#!/bin/env python
+
+# ratorade: Everyone's a critic
+#
+# Copyright (c) 2012 Erik Erlandson
+#
+# Author:  Erik Erlandson <erikerlandson@yahoo.com>
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import sys
+import argparse
+import pymongo
+
+import ratorade
+
+argparser = argparse.ArgumentParser()
+argparser.add_argument('name', metavar='<name>', help='current name')
+argparser.add_argument('newname', metavar='<name>', help='new name')
+argparser.add_argument('-dbname', default='ratorade', metavar='<name>', help='rating db name: def="ratorade"')
+argparser.add_argument('-dbserver', default='127.0.0.1', metavar='<db-server-ip>', help='def=127.0.0.1')
+
+args = argparser.parse_args()
+
+mongo = ratorade.require_connection(args.dbserver)
+mongo_db = ratorade.require_db(mongo, args.dbname)
+collection = ratorade.require_collection(mongo_db, args.name)
+
+collection.rename(args.newname)
