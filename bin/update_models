@@ -33,6 +33,8 @@ argparser.add_argument('-user', default='user', metavar='<attr-name>', help='att
 argparser.add_argument('-minratings', type=int, default=10, metavar='<N>', help='require at least N ratings to generate a model: def= 10')
 argparser.add_argument('-targettime', type=int, default=3600, metavar='<seconds>', help='target total update time: def= 3600')
 argparser.add_argument('-refresh', default=False, action='store_true', help='refresh all models from scratch')
+argparser.add_argument('-cvholdout', type=int, default=None, metavar='<N>', help='hold out CV fold N from model building') 
+argparser.add_argument('-cvattr', default="cvf", metavar='<attr>', help='use "attr" for crossval fold: def= "cvf"')
 argparser.add_argument('-dbname', default='ratorade', metavar='<name>', help='rating db name: def="ratorade"')
 argparser.add_argument('-data', default='ratings', metavar='<collection-name>', help='rating data collection name: def= "ratings"')
 argparser.add_argument('-models', default='models', metavar='<collection-name>', help='model collection name: def= "models"')
@@ -86,7 +88,9 @@ uhist = dict([(k, data.find({args.rate:k}, fields=[args.rate]).count()) for k in
 
 # ratings since the last model update
 sys.stdout.write("identifying new ratings...\n")
-new_ratings = data.find({"updated":{"$gt":last_model_update}}, fields=[args.user, args.rate, args.rating], timeout=False)
+nrquery = {"updated":{"$gt":last_model_update}}
+if args.cvholdout is not None: nrquery[args.cvattr] = {'$ne':args.cvholdout}
+new_ratings = data.find(nrquery, fields=[args.user, args.rate, args.rating], timeout=False)
 nr = new_ratings.count()
 sys.stdout.write("identified %d new ratings\n" % (nr))
 
@@ -104,6 +108,7 @@ for r0 in new_ratings:
     query = ratorade.random_sampling_query(fsamp)
     query["_id"] = {"$lt":r0["_id"]}
     query[args.user] = r0[args.user]
+    if args.cvholdout is not None: query[args.cvattr] = {'$ne':args.cvholdout}
     qres = data.find(query,fields=[args.rate,args.rating]).hint([(args.user, pymongo.ASCENDING)])
     for r1 in qres:
         if uhist[r1[args.rate]] < args.minratings: continue
