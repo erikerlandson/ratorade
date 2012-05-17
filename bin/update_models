@@ -25,6 +25,7 @@ import argparse
 import pymongo
 
 import ratorade
+import dbutils
 
 argparser = argparse.ArgumentParser(parents=[dbutils.parser])
 argparser.add_argument('-rate', required=True, metavar='<attr-name>', help='attr containing item categories that are being rated')
