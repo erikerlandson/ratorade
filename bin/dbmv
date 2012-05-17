@@ -23,17 +23,16 @@ import argparse
 import pymongo
 
 import ratorade
+import dbutils
 
-argparser = argparse.ArgumentParser()
+argparser = argparse.ArgumentParser(parents=[dbutils.parser])
 argparser.add_argument('name', metavar='<name>', help='current name')
 argparser.add_argument('newname', metavar='<name>', help='new name')
-argparser.add_argument('-dbname', default='ratorade', metavar='<name>', help='rating db name: def="ratorade"')
-argparser.add_argument('-dbserver', default='127.0.0.1', metavar='<db-server-ip>', help='def=127.0.0.1')
 
 args = argparser.parse_args()
 
-mongo = ratorade.require_connection(args.dbserver)
-mongo_db = ratorade.require_db(mongo, args.dbname)
-collection = ratorade.require_collection(mongo_db, args.name)
+mongo = dbutils.require_connection(args.dbserver)
+mongo_db = dbutils.require_db(mongo, args.dbname)
+collection = dbutils.require_collection(mongo_db, args.name)
 
 collection.rename(args.newname)

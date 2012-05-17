@@ -26,7 +26,7 @@ import pymongo
 
 import ratorade
 
-argparser = argparse.ArgumentParser()
+argparser = argparse.ArgumentParser(parents=[dbutils.parser])
 argparser.add_argument('-rate', required=True, metavar='<attr-name>', help='attr containing item categories that are being rated')
 argparser.add_argument('-rating', default='rating', metavar='<attr-name>', help='attr containing ratings/scores: def="rating"')
 argparser.add_argument('-user', default='user', metavar='<attr-name>', help='attr containing user ids: def= "user"')
@@ -35,21 +35,19 @@ argparser.add_argument('-targettime', type=int, default=3600, metavar='<seconds>
 argparser.add_argument('-refresh', default=False, action='store_true', help='refresh all models from scratch')
 argparser.add_argument('-cvholdout', type=int, default=None, metavar='<N>', help='hold out CV fold N from model building') 
 argparser.add_argument('-cvattr', default="cvf", metavar='<attr>', help='use "attr" for crossval fold: def= "cvf"')
-argparser.add_argument('-dbname', default='ratorade', metavar='<name>', help='rating db name: def="ratorade"')
 argparser.add_argument('-data', default='ratings', metavar='<collection-name>', help='rating data collection name: def= "ratings"')
 argparser.add_argument('-models', default='models', metavar='<collection-name>', help='model collection name: def= "models"')
 argparser.add_argument('-updates', default='updates', metavar='<collection-name>', help='updates collection name: def= "updates"')
-argparser.add_argument('-dbserver', default='127.0.0.1', metavar='<db-server-ip>', help='def=127.0.0.1')
 
 args = argparser.parse_args()
 
 t00 = time.time()
 
-mongo = ratorade.require_connection(args.dbserver)
-ratorade_db = ratorade.require_db(mongo, args.dbname)
+mongo = dbutils.require_connection(args.dbserver)
+ratorade_db = dbutils.require_db(mongo, args.dbname)
 
 # This must exist, since it holds the model input data
-data = ratorade.require_collection(ratorade_db, args.data)
+data = dbutils.require_collection(ratorade_db, args.data)
 
 # These can be created silently if they don't already exist
 models = ratorade_db[args.models]
@@ -105,7 +103,7 @@ for r0 in new_ratings:
     nrdone += 1
     # require a minimum number of ratings for this category to bother generating a model
     if uhist[r0[args.rate]] < args.minratings: continue
-    query = ratorade.random_sampling_query(fsamp)
+    query = dbutils.random_sampling_query(fsamp)
     query["_id"] = {"$lt":r0["_id"]}
     query[args.user] = r0[args.user]
     if args.cvholdout is not None: query[args.cvattr] = {'$ne':args.cvholdout}

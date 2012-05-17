@@ -25,32 +25,7 @@ from math import sqrt, floor
 import pymongo
 import bson
 
-def require_connection(dbserver):
-    try:
-        mongo = pymongo.Connection(dbserver)
-    except:
-        sys.stderr.write("failed to connect to db server %s\n" % (dbserver))
-        exit(1)
-    return mongo
-
-def require_db(mongo, dbname):
-    try:
-        if dbname not in mongo.database_names():
-            raise Exception("db does not exist")
-        mongo_db = mongo[dbname]
-    except:
-        sys.stderr.write("failed to open db %s on server %s:%s\n" % (dbname, mongo.host, mongo.port))
-        exit(1)
-    return mongo_db
-
-def require_collection(mongo_db, collection):
-    try:
-        mongo_db.validate_collection(collection)
-        collection = mongo_db[collection]
-    except:
-        sys.stderr.write("failed to open collection %s on db %s\n" % (collection, mongo_db.name))
-        exit(1)
-    return collection
+import dbutils
 
 def histogram(collection, keylist, histname, kdelim=":", numeric=False, bins=0, kmin=None, kmax=None):
     if bins>0: numeric=True
@@ -104,19 +79,6 @@ def maximum_value(collection, key, resname):
     return collection.map_reduce(fmap, fred, resname)
 
 
-def query_attributes(query):
-    attr = set()
-    if type(query) == dict:
-        for k in query.keys():
-            attr |= set(query_attributes(query[k]))
-            if k[0] == '$': continue
-            attr.add(k)
-        return list(attr)
-    elif type(query) == list:
-        for e in query:
-            attr |= set(query_attributes(e))
-    return attr
-
 def histogram_to_collection(collection, keylist, histname, bins={}, where={}, sortkey='freq', prob=False, cumulative=False, counts=False, sortdir=pymongo.DESCENDING, sample=0):
     # start with fresh collection:
     collection.database.drop_collection(histname)
@@ -139,10 +101,10 @@ def histogram_to_collection(collection, keylist, histname, bins={}, where={}, so
     sq = None
     use_limit = 0
     if sample >= 1:
-        sq = random_sampling_query(float(sample) / float(collection.count()), pad=0.1)
+        sq = dbutils.random_sampling_query(float(sample) / float(collection.count()), pad=0.1)
         use_limit = int(sample)
     elif sample > 0:
-        sq = random_sampling_query(sample)
+        sq = dbutils.random_sampling_query(sample)
     if sq is not None:
         where = dict(list(where.items())+list(sq.items()))
     # if we need to, scan the data to determin min/max values:
@@ -206,15 +168,6 @@ def histogram_to_collection(collection, keylist, histname, bins={}, where={}, so
 
 def inverse_quantile(hist, q, cprob='cprob'):
     return list(hist.find({cprob:{"$gte": q}}).sort([(cprob, pymongo.ASCENDING)]).limit(1))[0]
-
-
-def random_sampling_query(p, rk0="rk0", rk1="rk1", pad = 0):
-    d = (1.0 - sqrt(1.0-p)) * (1.0 + pad)
-    if d > 1.0: d = 1.0
-    if d < 0.0: d = 0.0
-    s0 = random.random()*(1.0 - d)
-    s1 = random.random()*(1.0 - d)
-    return {"$or":[{rk0:{"$gte":s0, "$lt":s0+d}}, {rk1:{"$gte":s1, "$lt":s1+d}}]}
 
 
 def update_stats_linear(models, tnew, tref, id_attr="***undef***", rating_attr="***undef***", prev=None):

@@ -24,13 +24,12 @@ import argparse
 import pymongo
 
 import ratorade
+import dbutils
 
-argparser = argparse.ArgumentParser()
+argparser = argparse.ArgumentParser(parents=[dbutils.parser])
 argparser.add_argument('collection', metavar='<collection-name>', help='collection name')
 argparser.add_argument('attributes', metavar='<attribute-list>', help='list of attributes: attr1[,attr2,...]')
 argparser.add_argument('-bin', nargs='*', default=[], action='append', help='add a binning spec')
-argparser.add_argument('-dbname', default='ratorade', metavar='<name>', help='rating db name: def="ratorade"')
-argparser.add_argument('-dbserver', default='127.0.0.1', metavar='<db-server-ip>', help='def=127.0.0.1')
 argparser.add_argument('-odelim', default="\t", metavar='<delimiter>', help='output col delimiter: def= tab')
 argparser.add_argument('-kdelim', default=":", metavar='<delimiter>', help='histogram key delimiter: def= ":"')
 argparser.add_argument('-ofile', type=argparse.FileType('w'), default=sys.stdout, metavar='<outputfile>', help='def= stdout')
@@ -97,11 +96,11 @@ if type(where_expr) != dict:
     exit(1)
 
 
-mongo = ratorade.require_connection(args.dbserver)
-mongo_db = ratorade.require_db(mongo, args.dbname)
-collection = ratorade.require_collection(mongo_db, args.collection)
+mongo = dbutils.require_connection(args.dbserver)
+mongo_db = dbutils.require_db(mongo, args.dbname)
+collection = dbutils.require_collection(mongo_db, args.collection)
 
-where_attr = ratorade.query_attributes(where_expr)
+where_attr = dbutils.query_attributes(where_expr)
 for k in where_attr:
     collection.ensure_index([(k, pymongo.ASCENDING)])
 

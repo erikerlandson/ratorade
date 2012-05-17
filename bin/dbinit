@@ -26,20 +26,19 @@ import argparse
 import pymongo
 
 import ratorade
+import dbutils
 
 # someday I should do something a bit more classy:
 sys.path += ['/home/eje/git/dtools/bin']
 import dtools
 
-argparser = argparse.ArgumentParser()
+argparser = argparse.ArgumentParser(parents=[dbutils.parser])
 argparser.add_argument('file', nargs='?', type=argparse.FileType('r'), default=sys.stdin, metavar='<filename>', help='def= stdin')
 argparser.add_argument('-delim', default=None, metavar='<delimiter>', help='column delimiter: def= whitespace')
 argparser.add_argument('-columns', type=dtools.slicelist_arg, default=[':'], metavar='<slicelist>', help='col slicelist: def= ":", e.g. "1:", "2,3", "1:3,5,7,9:"')
 argparser.add_argument('-rows', type=dtools.slicelist_arg, default=[':'], metavar='<slicelist>', help='row slicelist: def= ":"')
 argparser.add_argument('-attributes', default='header', metavar='<attr-list>', help='def = from-header, "lab1,lab2,..."')
-argparser.add_argument('-dbname', default='ratorade', metavar='<name>', help='rating db name: def="ratorade"')
 argparser.add_argument('-collection', default='ratings', metavar='<collection-name>', help='rating tuple collection name: def= "ratings"')
-argparser.add_argument('-dbserver', default='127.0.0.1', metavar='<db-server-ip>', help='def=127.0.0.1')
 argparser.add_argument('-numeric', default='', metavar='<attr-list>', help='list numeric attributes')
 argparser.add_argument('-randkeys', type=int, default=0, metavar='<N>', help='generate N random keys "rk0", "rk1", ... for random sampling: def= 0')
 argparser.add_argument('-crossval', type=int, default=0, metavar='<N>', help='partition randomly into N crossval folds 0...(N-1)')
@@ -48,7 +47,7 @@ argparser.add_argument('-cvattr', default="cvf", metavar='<attr>', help='use "at
 args = argparser.parse_args()
 useheader = (args.attributes == "header")
 
-mongo = ratorade.require_connection(args.dbserver)
+mongo = dbutils.require_connection(args.dbserver)
 sys.stdout.write("creating db %s\n" % (args.dbname))
 mongo.drop_database(args.dbname)
 mongo_db = mongo[args.dbname]
