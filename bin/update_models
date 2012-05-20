@@ -31,13 +31,13 @@ argparser = argparse.ArgumentParser(parents=[dbutils.parser])
 argparser.add_argument('-rate', required=True, metavar='<attr-name>', help='attr containing item categories that are being rated')
 argparser.add_argument('-rating', default='rating', metavar='<attr-name>', help='attr containing ratings/scores: def="rating"')
 argparser.add_argument('-user', default='user', metavar='<attr-name>', help='attr containing user ids: def= "user"')
-argparser.add_argument('-minratings', type=int, default=10, metavar='<N>', help='require at least N ratings to generate a model: def= 10')
+argparser.add_argument('-minratings', type=int, default=10, metavar='<N>', help='require at least N ratings to collect stats: def= 10')
 argparser.add_argument('-targettime', type=int, default=3600, metavar='<seconds>', help='target total update time: def= 3600')
-argparser.add_argument('-refresh', default=False, action='store_true', help='refresh all models from scratch')
-argparser.add_argument('-cvholdout', type=int, default=None, metavar='<N>', help='hold out CV fold N from model building') 
+argparser.add_argument('-refresh', default=False, action='store_true', help='refresh all stats from scratch')
+argparser.add_argument('-cvholdout', type=int, default=None, metavar='<N>', help='hold out CV fold N from stats collection') 
 argparser.add_argument('-cvattr', default="cvf", metavar='<attr>', help='use "attr" for crossval fold: def= "cvf"')
 argparser.add_argument('-data', default='ratings', metavar='<collection-name>', help='rating data collection name: def= "ratings"')
-argparser.add_argument('-models', default='models', metavar='<collection-name>', help='model collection name: def= "models"')
+argparser.add_argument('-stats', default='stats', metavar='<collection-name>', help='stats collection name: def= "stats"')
 argparser.add_argument('-updates', default='updates', metavar='<collection-name>', help='updates collection name: def= "updates"')
 
 args = argparser.parse_args()
@@ -47,11 +47,11 @@ t00 = time.time()
 mongo = dbutils.require_connection(args.dbserver)
 ratorade_db = dbutils.require_db(mongo, args.dbname)
 
-# This must exist, since it holds the model input data
+# This must exist, since it holds the input data
 data = dbutils.require_collection(ratorade_db, args.data)
 
 # These can be created silently if they don't already exist
-models = ratorade_db[args.models]
+stats = ratorade_db[args.stats]
 updates = ratorade_db[args.updates]
 
 # maintain an update timestamp
@@ -60,21 +60,21 @@ if timestamps is None:
     tsid = updates.insert({"type":"timestamps"})
     timestamps = updates.find_one({"_id":tsid})
 
-last_model_update = 0
-if timestamps.has_key("models_updated"):
-    last_model_update = timestamps["models_updated"]
-updates.update({"_id":timestamps["_id"]}, {"$set":{"models_updated":time.time()}})
+last_stat_update = 0
+if timestamps.has_key("stats_updated"):
+    last_stat_update = timestamps["stats_updated"]
+updates.update({"_id":timestamps["_id"]}, {"$set":{"stats_updated":time.time()}})
 
-sys.stdout.write("last model update: %d\n" % (last_model_update))
+sys.stdout.write("last stat update: %d\n" % (last_stat_update))
 
 if args.refresh:
-    sys.stdout.write("refreshing model collection %s\n" % (args.models))
-    last_model_update = 0
-    models.drop()
-    models = ratorade_db[args.models]
+    sys.stdout.write("refreshing stat collection %s\n" % (args.stats))
+    last_stat_update = 0
+    stats.drop()
+    stats = ratorade_db[args.stats]
 
 sys.stdout.write("updating data indexes...\n")
-data.ensure_index([("updated", pymongo.ASCENDING)])
+data.ensure_index([("upd", pymongo.ASCENDING)])
 data.ensure_index([(args.rate, pymongo.ASCENDING)])
 data.ensure_index([(args.user, pymongo.ASCENDING)])
 data.ensure_index([("rk0", pymongo.ASCENDING)])
@@ -85,15 +85,15 @@ sys.stdout.write("assessing histogram over %s...\n" % (args.rate))
 uniq = data.distinct(args.rate)
 uhist = dict([(k, data.find({args.rate:k}, fields=[args.rate]).count()) for k in uniq])
 
-# ratings since the last model update
+# ratings since the last stat update
 sys.stdout.write("identifying new ratings...\n")
-nrquery = {"updated":{"$gt":last_model_update}}
+nrquery = {"updated":{"$gt":last_stat_update}}
 if args.cvholdout is not None: nrquery[args.cvattr] = {'$ne':args.cvholdout}
 new_ratings = data.find(nrquery, fields=[args.user, args.rate, args.rating], timeout=False)
 nr = new_ratings.count()
 sys.stdout.write("identified %d new ratings\n" % (nr))
 
-sys.stdout.write("updating models stats for %s...\n" % (args.rate))
+sys.stdout.write("updating stats for %s...\n" % (args.rate))
 mcount = 0
 tlast = time.time()
 t0 = tlast
@@ -102,7 +102,7 @@ nrdone = 0
 fsamp = 1.0
 for r0 in new_ratings:
     nrdone += 1
-    # require a minimum number of ratings for this category to bother generating a model
+    # require a minimum number of ratings for this category to bother collecting stats
     if uhist[r0[args.rate]] < args.minratings: continue
     query = dbutils.random_sampling_query(fsamp)
     query["_id"] = {"$lt":r0["_id"]}
@@ -111,7 +111,7 @@ for r0 in new_ratings:
     qres = data.find(query,fields=[args.rate,args.rating]).hint([(args.user, pymongo.ASCENDING)])
     for r1 in qres:
         if uhist[r1[args.rate]] < args.minratings: continue
-        ratorade.update_stats_linear(models, r0, r1, id_attr=args.rate, rating_attr=args.rating)
+        ratorade.update_stats_linear(stats, r0, r1, id_attr=args.rate, rating_attr=args.rating)
         mcount += 1
     tt = time.time()
     tint += tt-tlast
@@ -124,13 +124,7 @@ for r0 in new_ratings:
         if remaining <= 0: break
         fsamp *= remaining / ettc
         fsamp = min(1.0,fsamp)
-        sys.stdout.write("elapsed: %d  new: %d/%d  rate: %g  ettc: %d  models:%d  updates: %d  update rate: %g  fsamp: %g\n" % (int(elapsed), nrdone, nr, nrate, int(ettc), models.count(), mcount, float(mcount)/elapsed, fsamp))
+        sys.stdout.write("elapsed: %d  new: %d/%d  rate: %g  ettc: %d  stats:%d  updates: %d  update rate: %g  fsamp: %g\n" % (int(elapsed), nrdone, nr, nrate, int(ettc), stats.count(), mcount, float(mcount)/elapsed, fsamp))
         tint -= 30
-
-sys.stdout.write("updating %d model coefficients for %s...\n" % (models.count(), args.rate))
-t0 = time.time()
-for m in models.find():
-    ratorade.update_coeff_linear(models, m)
-sys.stdout.write("time to update coeff: %d sec\n" % (int(time.time()-t0)))
 
 sys.stdout.write("total run time: %d sec\n" % (int(time.time()-t00)))

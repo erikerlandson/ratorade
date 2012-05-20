@@ -170,7 +170,7 @@ def inverse_quantile(hist, q, cprob='cprob'):
     return list(hist.find({cprob:{"$gte": q}}).sort([(cprob, pymongo.ASCENDING)]).limit(1))[0]
 
 
-def update_stats_linear(models, tnew, tref, id_attr="***undef***", rating_attr="***undef***", prev=None):
+def update_stats_linear(stats, tnew, tref, id_attr="***undef***", rating_attr="***undef***", prev=None):
     # canonically, the lesser id is associated with "0", the other one is "1"
     if (tnew[id_attr] <= tref[id_attr]):
         newk = "0"
@@ -183,28 +183,38 @@ def update_stats_linear(models, tnew, tref, id_attr="***undef***", rating_attr="
         rnew = tnew[rating_attr]
         rprv = prev[rating_attr]
         rref = tref[rating_attr]
-        models.update({'_id':{"k"+newk:tnew[id_attr], "k"+refk:tref[id_attr]}}, {'$inc':{"s"+newk:rnew-rprv, "s"+newk+newk:(rnew*rnew) - (rprv*rprv), "s01":(rnew - rprv)*rref}})
+        stats.update({'_id':{"k"+newk:tnew[id_attr], "k"+refk:tref[id_attr]}}, {'$inc':{"s"+newk:rnew-rprv, "s"+newk+newk:(rnew*rnew) - (rprv*rprv), "s01":(rnew - rprv)*rref}, '$set':{"upd":time.time()}})
     else:
         # adding a new pairwise stat
         rnew = tnew[rating_attr]
         rref = tref[rating_attr]
-        models.update({'_id':{"k"+newk:tnew[id_attr], "k"+refk:tref[id_attr]}}, {'$inc':{"n":1, "s"+newk:rnew, "s"+refk:rref, "s"+newk+newk:rnew*rnew, "s"+refk+refk:rref*rref, "s01":rnew*rref}}, True)
+        stats.update({'_id':{"k"+newk:tnew[id_attr], "k"+refk:tref[id_attr]}}, {'$inc':{"n":1, "s"+newk:rnew, "s"+refk:rref, "s"+newk+newk:rnew*rnew, "s"+refk+refk:rref*rref, "s01":rnew*rref}, '$set':{"upd":time.time()}}, True)
 
 
-def update_coeff_linear(models, model):
+def update_model_linear(models, stats, ssmin=0, rrmin=0.0):
     # cache latest linear params
-    n = model["n"]
-    s0 = model["s0"]
-    s1 = model["s1"]
-    s00 = model["s00"]
-    s11 = model["s11"]
-    s01 = model["s01"]
+    n = stats["n"]
+    if n < ssmin: return
+
+    s0 = stats["s0"]
+    s1 = stats["s1"]
+    s00 = stats["s00"]
+    s11 = stats["s11"]
+    s01 = stats["s01"]
+
     nn = n*s01 - s0*s1
     d0 = n*s00 - s0*s0
     d1 = n*s11 - s1*s1
+
     if ((d0 != 0) and (d1 != 0)):
         # correlation coefficient:
         r = nn / (sqrt(d0) * sqrt(d1))
+    else:
+        r = 0
+    rr = r*r
+    if rr < rrmin: return
+
+    if ((d0 != 0) and (d1 != 0)):
         # linear model x1 = a0*x0 + b0
         a0 = nn / d0
         b0 = (s1 - a0*s0)/n
@@ -212,10 +222,12 @@ def update_coeff_linear(models, model):
         a1 = nn / d1
         b1 = (s0 - a1*s1)/n
     else:
-        r = 0
         a0 = 0
         b0 = 0
         a1 = 0
         b1 = 0
-    # store the updated model back into the db collection
-    models.update({'_id':model['_id']}, {'$set':{"r":r, "rr":r*r, "a0":a0, "b0":b0, "a1":a1, "b1":b1}})
+
+    # store the updated models
+    u = time.time()
+    models.update({'_id':{"x":stats['_id']["k0"],"y":stats['_id']["k1"]}}, {'$set':{"n":n, "rr":rr, "a":a0, "b":b0, "upd":u}}, True)
+    models.update({'_id':{"x":stats['_id']["k1"],"y":stats['_id']["k0"]}}, {'$set':{"n":n, "rr":rr, "a":a1, "b":b1, "upd":u}}, True)

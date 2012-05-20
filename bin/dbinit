@@ -77,7 +77,7 @@ for a in args.numeric.split(','):
 sys.stdout.write("loading data into db...\n")
 
 for d in data:
-    td = {"updated":time.time()}
+    td = {"upd":time.time()}
     for j in xrange(args.randkeys):
         td["rk%d"%(j)] = random.random()
     if args.crossval > 0:

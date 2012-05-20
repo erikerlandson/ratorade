@@ -34,6 +34,7 @@ argparser.add_argument('-rating', default='rating', metavar='<attr-name>', help=
 argparser.add_argument('-user', default='user', metavar='<attr-name>', help='attr containing user ids: def= "user"')
 argparser.add_argument('-data', default='ratings', metavar='<collection-name>', help='rating data collection name: def= "ratings"')
 argparser.add_argument('-models', default='models', metavar='<collection-name>', help='model collection name: def= "models"')
+argparser.add_argument('-rrmin', type=float, default=0.5, metavar='<X>', help='use only models with r-squared >= X')
 
 args = argparser.parse_args()
 
