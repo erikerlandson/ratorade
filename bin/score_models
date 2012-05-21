@@ -65,7 +65,7 @@ see = 0.0
 
 prvuser = None
 cvquery = {args.cvattr:args.cv}
-cvres = data.find(cvquery, fields=[args.rate, args.rating, args.user]).sort([(args.user, pymongo.ASCENDING)])
+cvres = data.find(cvquery, fields=[args.rate, args.rating, args.user], timeout=False).sort([(args.user, pymongo.ASCENDING)])
 sys.stdout.write("scoring predictions for %d ratings in cv fold %d\n" % (cvres.count(), args.cv))
 # iterate over the crossval fold:
 for d in cvres:
@@ -74,6 +74,7 @@ for d in cvres:
         # load the rating data for this user
         udata = list(data.find({args.user:d[args.user]}, fields=[args.rate, args.rating, args.user]))
         urmap = dict([(ud[args.rate], ud[args.rating]) for ud in udata])
+        prvuser = d[args.user]
     # get all the models from the user's data for this item:
     query = {"_id.x":{'$in':[x[args.rate] for x in udata if x[args.rate] != d[args.rate]]}, "_id.y":d[args.rate]}
     query["n"] = {'$gte':args.ssmin}
