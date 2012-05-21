@@ -31,6 +31,9 @@ argparser.add_argument('-stats', default='stats', metavar='<collection-name>', h
 argparser.add_argument('-models', default='models', metavar='<collection-name>', help='models collection name: def= "models"')
 argparser.add_argument('-ssmin', type=int, default=5, metavar='<N>', help='cache only models with sample size >= N')
 argparser.add_argument('-rrmin', type=float, default=0.5, metavar='<X>', help='cache only models with r-squared >= X')
+argparser.add_argument('-refresh', default=False, action='store_true', help='refresh all models from scratch')
+argparser.add_argument('-absamax', type=float, metavar='<X>', help='cache only models with slope |a| <= X')
+argparser.add_argument('-absbmax', type=float, metavar='<X>', help='cache only models with const |b| <= X')
 
 args = argparser.parse_args()
 
@@ -43,6 +46,11 @@ stats = dbutils.require_collection(ratorade_db, args.stats)
 # this can be silently created if it doesn't already exist:
 models = ratorade_db[args.models]
 
+if args.refresh:
+    sys.stdout.write("refreshing model collection %s\n" % (args.models))
+    models.drop()
+    models = ratorade_db[args.models]
+
 sys.stdout.write("updating indexes for %s...\n" % (args.stats))
 stats.ensure_index([("n", pymongo.ASCENDING)])
 
@@ -51,6 +59,6 @@ statquery = {"n":{'$gte':args.ssmin}}
 
 sys.stdout.write("caching model parameters to %s...\n" % (args.models))
 for srec in stats.find(statquery, fields=["n","s0","s1","s00","s11","s01"]):
-    update_model_linear(models, srec, ssmin=args.ssmin, rrmin=args.rrmin)
+    ratorade.update_model_linear(models, srec, ssmin=args.ssmin, rrmin=args.rrmin, absamax=args.absamax, absbmax=args.absbmax)
 
 sys.stdout.write("total run time: %d sec\n" % (int(time.time()-t00)))

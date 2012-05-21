@@ -87,7 +87,7 @@ uhist = dict([(k, data.find({args.rate:k}, fields=[args.rate]).count()) for k in
 
 # ratings since the last stat update
 sys.stdout.write("identifying new ratings...\n")
-nrquery = {"updated":{"$gt":last_stat_update}}
+nrquery = {"upd":{"$gt":last_stat_update}}
 if args.cvholdout is not None: nrquery[args.cvattr] = {'$ne':args.cvholdout}
 new_ratings = data.find(nrquery, fields=[args.user, args.rate, args.rating], timeout=False)
 nr = new_ratings.count()

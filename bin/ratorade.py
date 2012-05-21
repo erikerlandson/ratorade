@@ -19,8 +19,9 @@
 # limitations under the License.
 
 import sys
+import time
 import random
-from math import sqrt, floor
+from math import sqrt, floor, fabs
 
 import pymongo
 import bson
@@ -191,7 +192,7 @@ def update_stats_linear(stats, tnew, tref, id_attr="***undef***", rating_attr="*
         stats.update({'_id':{"k"+newk:tnew[id_attr], "k"+refk:tref[id_attr]}}, {'$inc':{"n":1, "s"+newk:rnew, "s"+refk:rref, "s"+newk+newk:rnew*rnew, "s"+refk+refk:rref*rref, "s01":rnew*rref}, '$set':{"upd":time.time()}}, True)
 
 
-def update_model_linear(models, stats, ssmin=0, rrmin=0.0):
+def update_model_linear(models, stats, ssmin=0, rrmin=0.0, absamax=None, absbmax=None):
     # cache latest linear params
     n = stats["n"]
     if n < ssmin: return
@@ -226,6 +227,12 @@ def update_model_linear(models, stats, ssmin=0, rrmin=0.0):
         b0 = 0
         a1 = 0
         b1 = 0
+
+    # I think if any of these are out of bounds I'll ignore both models
+    if (absamax is not None) and (absamax < fabs(a0)): return
+    if (absamax is not None) and (absamax < fabs(a1)): return
+    if (absbmax is not None) and (absbmax < fabs(b0)): return
+    if (absbmax is not None) and (absbmax < fabs(b1)): return
 
     # store the updated models
     u = time.time()
