@@ -20,7 +20,7 @@
 
 import sys
 import time
-import random
+import math
 import argparse
 import pymongo
 
@@ -34,12 +34,71 @@ argparser.add_argument('-rating', default='rating', metavar='<attr-name>', help=
 argparser.add_argument('-user', default='user', metavar='<attr-name>', help='attr containing user ids: def= "user"')
 argparser.add_argument('-data', default='ratings', metavar='<collection-name>', help='rating data collection name: def= "ratings"')
 argparser.add_argument('-models', default='models', metavar='<collection-name>', help='model collection name: def= "models"')
-argparser.add_argument('-rrmin', type=float, default=0.5, metavar='<X>', help='use only models with r-squared >= X')
-
+argparser.add_argument('-ssmin', type=int, default=5, metavar='<N>', help='consider only models with sample size >= N: def= 5')
+argparser.add_argument('-rrmin', type=float, default=0.5, metavar='<X>', help='consider only models with r-squared >= X: def= 0.5')
+argparser.add_argument('-minmodels', type=int, default=1, metavar='<N>', help='require >= N models: def=1')
+argparser.add_argument('-maxmodels', type=int, default=30, metavar='<N>', help='consider a maximum of N models: def=30')
+argparser.add_argument('-wexp', type=float, default=1.0, metavar='<X>', help='weight models by w = rr^X: def= 1')
+argparser.add_argument('-cvattr', default="cvf", metavar='<attr>', help='use "attr" for crossval fold: def= "cvf"')
 args = argparser.parse_args()
+
+t00 = time.time()
 
 mongo = dbutils.require_connection(args.dbserver)
 ratorade_db = dbutils.require_db(mongo, args.dbname)
 
-# This must exist, since it holds the model input data
+# these must exist
 data = dbutils.require_collection(ratorade_db, args.data)
+models = dbutils.require_collection(ratorade_db, args.models)
+
+sys.stdout.write("indexing data...\n")
+data.ensure_index([(args.cvattr, pymongo.ASCENDING)])
+data.ensure_index([(args.user, pymongo.ASCENDING)])
+models.ensure_index([("rr", pymongo.ASCENDING)])
+models.ensure_index([("n", pymongo.ASCENDING)])
+
+# some scoring stats
+nall = 0
+n = 0
+se = 0.0
+see = 0.0
+
+prvuser = None
+cvquery = {args.cvattr:args.cv}
+cvres = data.find(cvquery, fields=[args.rate, args.rating, args.user]).sort([(args.user, pymongo.ASCENDING)])
+sys.stdout.write("scoring predictions for %d ratings in cv fold %d\n" % (cvres.count(), args.cv))
+# iterate over the crossval fold:
+for d in cvres:
+    nall += 1
+    if d[args.user] != prvuser:
+        # load the rating data for this user
+        udata = list(data.find({args.user:d[args.user]}, fields=[args.rate, args.rating, args.user]))
+        urmap = dict([(ud[args.rate], ud[args.rating]) for ud in udata])
+    # get all the models from the user's data for this item:
+    query = {"_id.x":{'$in':[x[args.rate] for x in udata if x[args.rate] != d[args.rate]]}, "_id.y":d[args.rate]}
+    query["n"] = {'$gte':args.ssmin}
+    query["rr"] = {'$gte':args.rrmin}
+    qmod = models.find(query).sort([("rr",pymongo.DESCENDING)]).limit(args.maxmodels)
+    # we can't rate w/out minimum models
+    if qmod.count() < args.minmodels: continue
+    sw = 0
+    swy = 0
+    for m in qmod:
+        y = m["a"]*urmap[m["_id"]["x"]] + m["b"]
+        w = math.pow(m["rr"], args.wexp)
+        sw += w
+        swy += w*y
+    pred = swy/sw
+    err = math.fabs(pred-d[args.rating])
+    n += 1
+    se += err
+    see += err*err
+
+# output stats
+sys.stdout.write("total rated: %d/%d (%g)\n" % (n, nall, float(n)/float(nall)))
+emean = float(se)/float(n)
+estdv = math.sqrt((n*see - se*se)/float(n*(n-1)))
+sys.stdout.write("mean abs err: %g\n" % (emean))
+sys.stdout.write("stdv abs err: %g\n" % (estdv))
+
+sys.stdout.write("total run time: %d sec\n" % (int(time.time()-t00)))
