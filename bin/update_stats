@@ -39,6 +39,7 @@ argparser.add_argument('-cvattr', default="cvf", metavar='<attr>', help='use "at
 argparser.add_argument('-data', default='ratings', metavar='<collection-name>', help='rating data collection name: def= "ratings"')
 argparser.add_argument('-stats', default='stats', metavar='<collection-name>', help='stats collection name: def= "stats"')
 argparser.add_argument('-updates', default='updates', metavar='<collection-name>', help='updates collection name: def= "updates"')
+argparser.add_argument('-chkint', type=float, default=60, metavar='<N>', help='self check interval N seconds: def= 60')
 
 args = argparser.parse_args()
 
@@ -76,7 +77,7 @@ if args.refresh:
 sys.stdout.write("updating data indexes...\n")
 data.ensure_index([("upd", pymongo.ASCENDING)])
 data.ensure_index([(args.rate, pymongo.ASCENDING)])
-data.ensure_index([(args.user, pymongo.ASCENDING)])
+data.ensure_index([(args.user, pymongo.ASCENDING), ("_id", pymongo.ASCENDING)])
 data.ensure_index([("rk0", pymongo.ASCENDING)])
 data.ensure_index([("rk1", pymongo.ASCENDING)])
 
@@ -99,6 +100,7 @@ tlast = time.time()
 t0 = tlast
 tint = 0
 nrdone = 0
+nrdlast = 0
 fsamp = 1.0
 for r0 in new_ratings:
     nrdone += 1
@@ -108,7 +110,7 @@ for r0 in new_ratings:
     query["_id"] = {"$lt":r0["_id"]}
     query[args.user] = r0[args.user]
     if args.cvholdout is not None: query[args.cvattr] = {'$ne':args.cvholdout}
-    qres = data.find(query,fields=[args.rate,args.rating]).hint([(args.user, pymongo.ASCENDING)])
+    qres = data.find(query,fields=[args.rate,args.rating])
     for r1 in qres:
         if uhist[r1[args.rate]] < args.minratings: continue
         ratorade.update_stats_linear(stats, r0, r1, id_attr=args.rate, rating_attr=args.rating)
@@ -116,15 +118,17 @@ for r0 in new_ratings:
     tt = time.time()
     tint += tt-tlast
     tlast = tt
-    if (tint >= 30):
+    if (tint >= args.chkint):
         elapsed = float(tt - t0)
         nrate = float(nrdone)/float(elapsed)
-        ettc = float(nr-nrdone)/nrate
+        irate = float(nrdone-nrdlast)/float(tint)
+        ettc = float(nr-nrdone)/irate
         remaining = args.targettime-elapsed
         if remaining <= 0: break
-        fsamp *= remaining / ettc
-        fsamp = min(1.0,fsamp)
-        sys.stdout.write("elapsed: %d  new: %d/%d  rate: %g  ettc: %d  stats:%d  updates: %d  update rate: %g  fsamp: %g\n" % (int(elapsed), nrdone, nr, nrate, int(ettc), stats.count(), mcount, float(mcount)/elapsed, fsamp))
-        tint -= 30
+        fsampest = min(1.0, fsamp * remaining / ettc)
+        fsamp = (fsamp+fsampest)/2.0
+        sys.stdout.write("elapsed: %d  new: %d/%d  rate: %g  irate: %g  ettc: %d  stats:%d  updates: %d  update rate: %g  fsamp: %g\n" % (int(elapsed), nrdone, nr, nrate, irate, int(ettc), stats.count(), mcount, float(mcount)/elapsed, fsamp))
+        tint -= args.chkint
+        nrdlast = nrdone
 
 sys.stdout.write("total run time: %d sec\n" % (int(time.time()-t00)))
