@@ -228,13 +228,9 @@ def update_model_linear(models, stats, ssmin=0, rrmin=0.0, absamax=None, absbmax
         a1 = 0
         b1 = 0
 
-    # I think if any of these are out of bounds I'll ignore both models
-    if (absamax is not None) and (absamax < fabs(a0)): return
-    if (absamax is not None) and (absamax < fabs(a1)): return
-    if (absbmax is not None) and (absbmax < fabs(b0)): return
-    if (absbmax is not None) and (absbmax < fabs(b1)): return
-
     # store the updated models
     u = time.time()
-    models.update({'_id':{"x":stats['_id']["k0"],"y":stats['_id']["k1"]}}, {'$set':{"n":n, "rr":rr, "a":a0, "b":b0, "upd":u}}, True)
-    models.update({'_id':{"x":stats['_id']["k1"],"y":stats['_id']["k0"]}}, {'$set':{"n":n, "rr":rr, "a":a1, "b":b1, "upd":u}}, True)
+    if ((absamax is None) or (absamax >= fabs(a0))) and ((absbmax is None) or (absbmax >= fabs(b0))):
+        models.update({'_id':{"x":stats['_id']["k0"],"y":stats['_id']["k1"]}}, {'$set':{"n":n, "rr":rr, "a":a0, "b":b0, "upd":u}}, True)
+    if ((absamax is None) or (absamax >= fabs(a1))) and ((absbmax is None) or (absbmax >= fabs(b1))):
+        models.update({'_id':{"x":stats['_id']["k1"],"y":stats['_id']["k0"]}}, {'$set':{"n":n, "rr":rr, "a":a1, "b":b1, "upd":u}}, True)
