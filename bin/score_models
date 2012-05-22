@@ -40,6 +40,8 @@ argparser.add_argument('-minmodels', type=int, default=1, metavar='<N>', help='r
 argparser.add_argument('-maxmodels', type=int, default=30, metavar='<N>', help='consider a maximum of N models: def=30')
 argparser.add_argument('-wexp', type=float, default=1.0, metavar='<X>', help='weight models by w = rr^X: def= 1')
 argparser.add_argument('-cvattr', default="cvf", metavar='<attr>', help='use "attr" for crossval fold: def= "cvf"')
+argparser.add_argument('-scores', metavar='<collection-name>', help='store scoring information to collection')
+
 args = argparser.parse_args()
 
 t00 = time.time()
@@ -50,6 +52,12 @@ ratorade_db = dbutils.require_db(mongo, args.dbname)
 # these must exist
 data = dbutils.require_collection(ratorade_db, args.data)
 models = dbutils.require_collection(ratorade_db, args.models)
+
+# refresh this
+if args.scores is not None:
+    scores = ratorade_db[args.scores]
+    scores.drop()
+    scores = ratorade_db[args.scores]
 
 sys.stdout.write("indexing data...\n")
 data.ensure_index([(args.cvattr, pymongo.ASCENDING)])
@@ -80,7 +88,8 @@ for d in cvres:
     query["rr"] = {'$gte':args.rrmin}
     qmod = models.find(query).sort([("rr",pymongo.DESCENDING)]).limit(args.maxmodels)
     # we can't rate w/out minimum models
-    if qmod.count() < args.minmodels: continue
+    nmodels = qmod.count(with_limit_and_skip=True)
+    if nmodels < args.minmodels: continue
     sw = 0
     swy = 0
     for m in qmod:
@@ -89,16 +98,20 @@ for d in cvres:
         sw += w
         swy += w*y
     pred = swy/sw
-    err = math.fabs(pred-d[args.rating])
+    truth = d[args.rating]
+    err = math.fabs(pred-truth)
     n += 1
     se += err
     see += err*err
+    if args.scores is not None:
+        scores.save({args.rating:truth, "pred":pred, "err":pred-truth, "abserr":err, "nmod": nmodels})
+
+sys.stdout.write("total run time: %d sec\n" % (int(time.time()-t00)))
 
 # output stats
 sys.stdout.write("total rated: %d/%d (%g)\n" % (n, nall, float(n)/float(nall)))
 emean = float(se)/float(n)
-estdv = math.sqrt((n*see - se*se)/float(n*(n-1)))
 sys.stdout.write("mean abs err: %g\n" % (emean))
+estdv = math.sqrt((n*see - se*se)/float(n*(n-1)))
 sys.stdout.write("stdv abs err: %g\n" % (estdv))
 
-sys.stdout.write("total run time: %d sec\n" % (int(time.time()-t00)))
