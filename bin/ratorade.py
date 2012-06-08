@@ -86,6 +86,11 @@ def histogram_to_collection(collection, keylist, histname, bins={}, where={}, so
     hist = collection.database[histname]
     min_scan = []
     max_scan = []
+    resolve = {}
+    for k in keylist:
+        s = k.split('.')
+        if len(s)>1: resolve[k] = s
+        else:        resolve[k] = False
     # identify any binning keys that need min/max values:
     for a in bins.keys():
         if a not in keylist:
@@ -134,10 +139,18 @@ def histogram_to_collection(collection, keylist, histname, bins={}, where={}, so
     for e in qres:
         hk = {}
         for k in keylist:
-            if bins.has_key(k):
-                hk[k] = floor((float(e[k])-bins[k]['min'])/bins[k]['w'])*bins[k]['w'] + bins[k]['min']
+            rs = resolve[k]
+            if rs:
+                # resolve dotted key expressions, e.g. '_id.y'
+                v = e
+                for kk in rs: v = v[kk]
             else:
-                hk[k] = e[k]
+                # a regular old key
+                v = e[k]
+            if bins.has_key(k):
+                hk[k] = floor((float(v)-bins[k]['min'])/bins[k]['w'])*bins[k]['w'] + bins[k]['min']
+            else:
+                hk[k] = v
         # either increments freq, or creates new entry w/ freq = 1:
         hist.update({'_id':hk}, {'$inc':{'freq':1}}, True)
     # fill in optional fields like prob, cfreq, cprob, etc:
