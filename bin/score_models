@@ -41,6 +41,7 @@ argparser.add_argument('-maxmodels', type=int, default=30, metavar='<N>', help='
 argparser.add_argument('-wexp', type=float, default=1.0, metavar='<X>', help='weight models by w = rr^X: def= 1')
 argparser.add_argument('-cvattr', default="cvf", metavar='<attr>', help='use "attr" for crossval fold: def= "cvf"')
 argparser.add_argument('-scores', metavar='<collection-name>', help='store scoring information to collection')
+argparser.add_argument('-refresh', default=False, action='store_true', help='refresh scores collection')
 
 args = argparser.parse_args()
 
@@ -53,11 +54,14 @@ ratorade_db = dbutils.require_db(mongo, args.dbname)
 data = dbutils.require_collection(ratorade_db, args.data)
 models = dbutils.require_collection(ratorade_db, args.models)
 
-# refresh this
+# set up scoring data collection
 if args.scores is not None:
+    sys.stdout.write("using score collection %s\n" % (args.scores))
     scores = ratorade_db[args.scores]
-    scores.drop()
-    scores = ratorade_db[args.scores]
+    if args.refresh:
+        sys.stdout.write("refreshing score collection %s\n" % (args.scores))
+        scores.drop()
+        scores = ratorade_db[args.scores]
 
 sys.stdout.write("indexing data...\n")
 data.ensure_index([(args.cvattr, pymongo.ASCENDING)])
@@ -86,9 +90,9 @@ for d in cvres:
     query = {"_id.x":{'$in':[x[args.rate] for x in udata if x[args.rate] != d[args.rate]]}, "_id.y":d[args.rate]}
     query["n"] = {'$gte':args.ssmin}
     query["rr"] = {'$gte':args.rrmin}
-    qmod = models.find(query).sort([("rr",pymongo.DESCENDING)]).limit(args.maxmodels)
+    qmod = list(models.find(query).sort([("rr",pymongo.DESCENDING)]).limit(args.maxmodels))
     # we can't rate w/out minimum models
-    nmodels = qmod.count(with_limit_and_skip=True)
+    nmodels = len(qmod)
     if nmodels < args.minmodels: continue
     sw = 0
     swy = 0
@@ -104,7 +108,7 @@ for d in cvres:
     se += err
     see += err*err
     if args.scores is not None:
-        scores.save({args.rating:truth, "pred":pred, "err":pred-truth, "abserr":err, "nmod": nmodels})
+        scores.save({args.rating:truth, "pred":pred, "err":pred-truth, "abserr":err, "cvf":args.cv, "nmod": nmodels, "rrmax":qmod[0]["rr"], "rrmin":qmod[-1]["rr"], "rrmed":qmod[len(qmod)/2]["rr"]})
 
 sys.stdout.write("total run time: %d sec\n" % (int(time.time()-t00)))
 
