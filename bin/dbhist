@@ -108,7 +108,8 @@ for k in where_attr:
 hist = ratorade.histogram_to_collection(collection, attrlist, args.histname, prob=True, cumulative=args.cumulative, counts=args.counts, sortkey=args.sort, sortdir=sortdir, bins=bins, where=where_expr, sample=args.sample)
 
 # header
-args.ofile.write("key%sfreq%sprob" % (args.odelim, args.odelim))
+args.ofile.write("%s" % (args.kdelim.join(attrlist)))
+args.ofile.write("%sfreq%sprob" % (args.odelim, args.odelim))
 if (args.cumulative): args.ofile.write("%scfreq%scprob" % (args.odelim, args.odelim))
 if (args.counts): args.ofile.write("%scount%scfrac" % (args.odelim, args.odelim))
 args.ofile.write("\n")
