@@ -25,11 +25,12 @@ import pymongo
 
 import ratorade
 import dbutils
+import argparse_utils
 
 argparser = argparse.ArgumentParser(parents=[dbutils.parser])
 argparser.add_argument('collection', metavar='<collection-name>', help='collection name')
-argparser.add_argument('attributes', metavar='<attribute-list>', help='list of attributes: attr1[,attr2,...]')
-argparser.add_argument('-bin', nargs='*', default=[], action='append', help='add a binning spec')
+argparser.add_argument('attributes', nargs='+', metavar='<attribute>', help='list of attributes: attr1 [attr2 ...]')
+argparser.add_argument('-bin', nargs='*', default=[], type=argparse_utils.avpair, action=argparse_utils.append_avpair_dict, metavar='<avpair>', help='add a binning spec')
 argparser.add_argument('-odelim', default="\t", metavar='<delimiter>', help='output col delimiter: def= tab')
 argparser.add_argument('-kdelim', default=":", metavar='<delimiter>', help='histogram key delimiter: def= ":"')
 argparser.add_argument('-ofile', type=argparse.FileType('w'), default=sys.stdout, metavar='<outputfile>', help='def= stdout')
@@ -40,82 +41,50 @@ argparser.add_argument('-cumulative', default=False, action='store_true', help='
 argparser.add_argument('-counts', default=False, action='store_true', help='include counts: count/cfrac')
 argparser.add_argument('-histname', default='_hist', metavar='<name>', help='histogram collection name: default= "_hist"')
 argparser.add_argument('-retain', default=False, action='store_true', help='do not delete the histogram collection when finished')
-argparser.add_argument('-where', default='{}', metavar='<query>', help='a query to narrow histogram collection')
+argparser.add_argument('-where', type = argparse_utils.dict_expr, default={}, metavar='<query>', help='a query to narrow histogram collection')
 argparser.add_argument('-sample', type=float, default=0, metavar='<S|F>', help='histogram a random sample size S or fraction F')
 
 args = argparser.parse_args()
 
-attrlist = args.attributes.split(',')
+# we can do this if there's no ambiguity
+if len(args.attributes) == 1  and  len(args.bin) == 1:
+    if not args.bin[0].has_key('attr'):
+        args.bin[0]['attr'] = args.attributes[0]
 
-# Fill in any binning specifications:
+# Fill in any binning specifications and sanity check:
 bins = {}
-if args.bin == [[]]:
-    args.bin = [[attrlist[0]]]
-elif (len(args.bin) == 1) and (len(args.bin[0]) == 1) and (len(attrlist) == 1):
-    try:
-        v = int(args.bin[0][0])
-    except:
-        pass
-    else:
-        args.bin = [[attrlist[0], '{"bins":%s}'%(v)]]
 for e in args.bin:
-    if len(e) > 2  or  len(e) < 1:
+    if not (set(e.keys()) <= set(['attr','bins','min','max'])):
         sys.stderr.write("bad binning args: %s\n" % (e))
         exit(1)
-    if len(e) == 2:
-        try:
-            b = eval(e[1])
-        except:
-            sys.stderr.write("bad binning args: %s\n" % (e))
-            exit(1)
-    else:
-        b = 10
-    if type(b) == int:
-        b = {'bins': b}
-    elif type(b) == dict:
-        pass
-    else:
+    if not e.has_key('attr'):
+        sys.stderr.write("bad binning args: %s\n" % (e))
+        exit(1)        
+    if e['attr'] not in args.attributes:
         sys.stderr.write("bad binning args: %s\n" % (e))
         exit(1)
-    if not (set(b.keys()) <= set(['bins','min','max'])):
-        sys.stderr.write("bad binning args: %s\n" % (e))
-        exit(1)
-    for k in b.keys():
-        if type(b[k]) not in [int, float]:
-            sys.stderr.write("bad binning args: %s\n" % (e))
-            exit(1)
-    if e[0] not in attrlist:
-        sys.stderr.write("bad binning args: %s\n" % (e))
-        exit(1)
-    bins[e[0]] = b
+    if not e.has_key('bins'):
+        args.bin[0]['bins'] = 10
+    bins[e['attr']] = e
 
 
 if args.descending: sortdir = pymongo.DESCENDING
 else:               sortdir = pymongo.ASCENDING
-
-try:
-    where_expr = eval(args.where)
-except:
-    sys.stderr.write("bad where expr %s\n" % (args.where))
-    exit(1)
-if type(where_expr) != dict:
-    sys.stderr.write("bad where expr %s\n" % (args.where))
-    exit(1)
 
 
 mongo = dbutils.require_connection(args.dbserver)
 mongo_db = dbutils.require_db(mongo, args.dbname)
 collection = dbutils.require_collection(mongo_db, args.collection)
 
-where_attr = dbutils.query_attributes(where_expr)
+where_attr = dbutils.query_attributes(args.where)
 for k in where_attr:
     collection.ensure_index([(k, pymongo.ASCENDING)])
 
 # compute the histogram
-hist = ratorade.histogram_to_collection(collection, attrlist, args.histname, prob=True, cumulative=args.cumulative, counts=args.counts, sortkey=args.sort, sortdir=sortdir, bins=bins, where=where_expr, sample=args.sample)
+hist = ratorade.histogram_to_collection(collection, args.attributes, args.histname, prob=True, cumulative=args.cumulative, counts=args.counts, sortkey=args.sort, sortdir=sortdir, bins=bins, where=args.where, sample=args.sample)
 
 # header
-args.ofile.write("%s" % (args.kdelim.join(attrlist)))
+args.ofile.write("%s" % (args.kdelim.join(args.attributes)))
 args.ofile.write("%sfreq%sprob" % (args.odelim, args.odelim))
 if (args.cumulative): args.ofile.write("%scfreq%scprob" % (args.odelim, args.odelim))
 if (args.counts): args.ofile.write("%scount%scfrac" % (args.odelim, args.odelim))
@@ -123,7 +92,7 @@ args.ofile.write("\n")
 
 # dump the histogram data:
 for e in hist.find().sort([(args.sort, sortdir)]):
-    key = args.kdelim.join([str(e['_id'][k]) for k in attrlist])
+    key = args.kdelim.join([str(e['_id'][k]) for k in args.attributes])
     oline = key
     oline += "%s%d%s%.4g" % (args.odelim, int(e['freq']), args.odelim, e['prob'])
     if args.cumulative: oline += "%s%d%s%.4g" % (args.odelim, int(e['cfreq']), args.odelim, e['cprob'])
