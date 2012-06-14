@@ -51,6 +51,13 @@ attrlist = args.attributes.split(',')
 bins = {}
 if args.bin == [[]]:
     args.bin = [[attrlist[0]]]
+elif (len(args.bin) == 1) and (len(args.bin[0]) == 1) and (len(attrlist) == 1):
+    try:
+        v = int(args.bin[0][0])
+    except:
+        pass
+    else:
+        args.bin = [[attrlist[0], '{"bins":%s}'%(v)]]
 for e in args.bin:
     if len(e) > 2  or  len(e) < 1:
         sys.stderr.write("bad binning args: %s\n" % (e))

@@ -148,7 +148,10 @@ def histogram_to_collection(collection, keylist, histname, bins={}, where={}, so
                 # a regular old key
                 v = e[k]
             if bins.has_key(k):
-                hk[k] = floor((float(v)-bins[k]['min'])/bins[k]['w'])*bins[k]['w'] + bins[k]['min']
+                kk = floor((float(v)-bins[k]['min'])/bins[k]['w'])
+                if kk < 0: kk = 0
+                if kk >= bins[k]['bins']: kk = bins[k]['bins']-1
+                hk[k] = kk*bins[k]['w'] + bins[k]['min']
             else:
                 hk[k] = v
         # either increments freq, or creates new entry w/ freq = 1:
