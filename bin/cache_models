@@ -27,8 +27,8 @@ import ratorade
 import dbutils
 
 argparser = argparse.ArgumentParser(parents=[dbutils.parser])
-argparser.add_argument('-stats', default='stats', metavar='<collection-name>', help='stats collection name: def= "stats"')
-argparser.add_argument('-models', default='models', metavar='<collection-name>', help='models collection name: def= "models"')
+argparser.add_argument('stats', metavar='<stats-coll>', help='stats collection name')
+argparser.add_argument('models', metavar='<models-coll>', help='models collection name')
 argparser.add_argument('-ssmin', type=int, default=5, metavar='<N>', help='cache only models with sample size >= N')
 argparser.add_argument('-rrmin', type=float, default=0.5, metavar='<X>', help='cache only models with r-squared >= X')
 argparser.add_argument('-refresh', default=False, action='store_true', help='refresh all models from scratch')
