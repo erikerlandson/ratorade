@@ -29,19 +29,17 @@ import dbutils
 import argparse_utils
 
 argparser = argparse.ArgumentParser(parents=[dbutils.parser])
-argparser.add_argument('-rate', required=True, metavar='<attr-name>', help='attr containing item categories that are being rated')
+argparser.add_argument('-target', required=True, nargs='*', type=argparse_utils.avpair, action=argparse_utils.append_avpair_dict, default=[], metavar='<avpair>', help='attr:<name> stats:<name> minratings:<N>')
 argparser.add_argument('-rating', default='rating', metavar='<attr-name>', help='attr containing ratings/scores: def="rating"')
 argparser.add_argument('-user', default='user', metavar='<attr-name>', help='attr containing user ids: def= "user"')
-argparser.add_argument('-minratings', type=int, default=10, metavar='<N>', help='require at least N ratings to collect stats: def= 10')
+argparser.add_argument('-minratings', type=int, default=10, metavar='<N>', help='Default minratings setting for targets.  Require at least N ratings to collect stats: def= 10')
 argparser.add_argument('-targettime', type=int, default=3600, metavar='<seconds>', help='target total update time: def= 3600')
 argparser.add_argument('-refresh', default=False, action='store_true', help='refresh all stats from scratch')
 argparser.add_argument('-cvholdout', type=int, default=None, metavar='<N>', help='hold out CV fold N from stats collection') 
 argparser.add_argument('-cvattr', default="cvf", metavar='<attr>', help='use "attr" for crossval fold: def= "cvf"')
 argparser.add_argument('-data', default='ratings', metavar='<collection-name>', help='rating data collection name: def= "ratings"')
-argparser.add_argument('-stats', default='stats', metavar='<collection-name>', help='stats collection name: def= "stats"')
 argparser.add_argument('-updates', default='updates', metavar='<collection-name>', help='updates collection name: def= "updates"')
 argparser.add_argument('-chkint', type=float, default=60, metavar='<N>', help='self check interval N seconds: def= 60')
-argparser.add_argument('-catmodel', nargs='*', type=argparse_utils.avpair, action=argparse_utils.append_avpair_dict, default=[], metavar='<avpair>', help='attr:<name> coll:<name>')
 
 args = argparser.parse_args()
 
@@ -54,15 +52,7 @@ ratorade_db = dbutils.require_db(mongo, args.dbname)
 data = dbutils.require_collection(ratorade_db, args.data)
 
 # These can be created silently if they don't already exist
-stats = ratorade_db[args.stats]
 updates = ratorade_db[args.updates]
-nrfields = [args.user]
-uqfields = [args.rate, args.rating, "upd"]
-for c in args.catmodel:
-    attr = c['attr']
-    cname = c['coll']
-    c['stats'] = ratorade_db[cname]
-    uqfields += [attr]
 
 # maintain an update timestamp
 timestamps = updates.find_one({"type":"timestamps"})
@@ -77,27 +67,32 @@ updates.update({"_id":timestamps["_id"]}, {"$set":{"stats_updated":time.time()}}
 
 sys.stdout.write("last stat update: %d\n" % (last_stat_update))
 
-if args.refresh:
-    sys.stdout.write("refreshing stat collection %s\n" % (args.stats))
-    last_stat_update = 0
-    stats.drop()
-    stats = ratorade_db[args.stats]
-    for c in args.catmodel:
-        sys.stdout.write("refreshing stat collection %s\n" % (c['attr']))
-        c['stats'].drop()
-        c['stats'] = ratorade_db[c['coll']]
+uqfields = [args.rating, "upd"]
+for t in args.target:
+    if not t.has_key('minratings'): t['minratings'] = args.minratings
+    attr = t['attr']
+    uqfields += [attr]
+    cname = t['stats']
+    t['coll'] = ratorade_db[cname]
+    if args.refresh:
+        sys.stdout.write("refreshing stat collection %s for %s\n" % (cname, attr))
+        last_stat_update = 0
+        t['coll'].drop()
+        t['coll'] = ratorade_db[cname]
 
 sys.stdout.write("updating data indexes...\n")
-data.ensure_index([(args.rate, pymongo.ASCENDING)])
 data.ensure_index([("upd", pymongo.ASCENDING), (args.user, pymongo.ASCENDING)])
 data.ensure_index([(args.user, pymongo.ASCENDING), ("upd", pymongo.ASCENDING)])
+for t in args.target: data.ensure_index([(t['attr'], pymongo.ASCENDING)])
 
 # We need a census of categories to implement some efficiencies
-sys.stdout.write("assessing histogram over %s...\n" % (args.rate))
-uniq = data.distinct(args.rate)
-uhist = dict([(k, data.find({args.rate:k}, fields=["_id"]).count()) for k in uniq])
+for t in args.target:
+    sys.stdout.write("assessing histogram over target attribute %s...\n" % (t['attr']))
+    uniq = data.distinct(t['attr'])
+    t['uhist'] = dict([(k, data.find({t['attr']:k}, fields=["_id"]).count()) for k in uniq])
 
 # ratings since the last stat update
+nrfields = [args.user]
 sys.stdout.write("identifying new ratings...\n")
 nrquery = {"upd":{"$gt":last_stat_update}}
 if args.cvholdout is not None: nrquery[args.cvattr] = {'$ne':args.cvholdout}
@@ -105,7 +100,7 @@ new_ratings = data.find(nrquery, fields=nrfields, timeout=False).sort([(args.use
 nr = new_ratings.count()
 sys.stdout.write("identified %d new ratings\n" % (nr))
 
-sys.stdout.write("updating stats for %s...\n" % (args.rate))
+sys.stdout.write("updating stats for %s...\n" % ([t['attr'] for t in args.target]))
 mcount = 0
 tlast = time.time()
 t0 = tlast
@@ -124,26 +119,21 @@ for nrec in new_ratings:
     query[args.user] = nrec[args.user]
     if args.cvholdout is not None: query[args.cvattr] = {'$ne':args.cvholdout}
     qres = list(data.find(query, fields=uqfields).sort([("upd", pymongo.ASCENDING)]))
-    # outer loop over the new/unseen ratings for this user
-    k = len(qres)-1
-    while k >= 0 and qres[k]["upd"] > last_stat_update:
-        r0 = qres[k]
-        k -= 1
-        # do these prior to target-specific
-        if len(args.catmodel) > 0:
+    # update stats for each requested target attribute:
+    for target in args.target:
+        # outer loop over the new/unseen ratings for this user
+        k = len(qres)-1
+        while k >= 0 and qres[k]["upd"] > last_stat_update:
+            r0 = qres[k]
+            k -= 1
+            # require a minimum number of ratings for this category to bother collecting stats
+            if target['uhist'][r0[target['attr']]] < target['minratings']: continue
             for r1 in qres:
                 # inner loop over older records - ensures pairwise stats are not duplicated
                 if r1["upd"] >= r0["upd"]: break
-                for c in args.catmodel:
-                    ratorade.update_stats_linear(c['stats'], r0, r1, id_attr=c['attr'], rating_attr=args.rating)
-        # require a minimum number of ratings for this category to bother collecting stats
-        if uhist[r0[args.rate]] < args.minratings: continue
-        for r1 in qres:
-            # inner loop over older records - ensures pairwise stats are not duplicated
-            if r1["upd"] >= r0["upd"]: break
-            if uhist[r1[args.rate]] < args.minratings: continue
-            ratorade.update_stats_linear(stats, r0, r1, id_attr=args.rate, rating_attr=args.rating)
-            mcount += 1
+                if target['uhist'][r1[target['attr']]] < target['minratings']: continue
+                ratorade.update_stats_linear(target['coll'], r0, r1, id_attr=target['attr'], rating_attr=args.rating)
+                mcount += 1
     tt = time.time()
     tint += tt-tlast
     tlast = tt
@@ -153,11 +143,11 @@ for nrec in new_ratings:
         irate = float(nrdone-nrdlast)/float(tint)
         ettc = float(nr-nrdone)/irate
         remaining = args.targettime-elapsed
-        if remaining <= 0: break
         fsampest = min(1.0, fsamp * remaining / ettc)
         fsamp = (fsamp+fsampest)/2.0
-        sys.stdout.write("elapsed: %d  new: %d/%d  rate: %g  irate: %g  ettc: %d  stats:%d  updates: %d  update rate: %g  fsamp: %g\n" % (int(elapsed), nrdone, nr, nrate, irate, int(ettc), stats.count(), mcount, float(mcount)/elapsed, fsamp))
+        sys.stdout.write("elapsed: %d  new: %d/%d  rate: %g  irate: %g  ettc: %d  stats: %s  updates: %d  update rate: %g  fsamp: %g\n" % (int(elapsed), nrdone, nr, nrate, irate, int(ettc), [t['coll'].count() for t in args.target], mcount, float(mcount)/elapsed, fsamp))
         tint -= args.chkint
         nrdlast = nrdone
+        if remaining <= 0: break
 
 sys.stdout.write("total run time: %d sec\n" % (int(time.time()-t00)))
