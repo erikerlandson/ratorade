@@ -26,6 +26,7 @@ import pymongo
 
 import ratorade
 import dbutils
+import argparse_utils
 
 argparser = argparse.ArgumentParser(parents=[dbutils.parser])
 argparser.add_argument('-rate', required=True, metavar='<attr-name>', help='attr containing item categories that are being rated')
@@ -40,6 +41,7 @@ argparser.add_argument('-data', default='ratings', metavar='<collection-name>', 
 argparser.add_argument('-stats', default='stats', metavar='<collection-name>', help='stats collection name: def= "stats"')
 argparser.add_argument('-updates', default='updates', metavar='<collection-name>', help='updates collection name: def= "updates"')
 argparser.add_argument('-chkint', type=float, default=60, metavar='<N>', help='self check interval N seconds: def= 60')
+argparser.add_argument('-catmodel', nargs='*', type=argparse_utils.avpair, action=argparse_utils.append_avpair_dict, default=[], metavar='<avpair>', help='attr:<name> coll:<name>')
 
 args = argparser.parse_args()
 
@@ -54,6 +56,13 @@ data = dbutils.require_collection(ratorade_db, args.data)
 # These can be created silently if they don't already exist
 stats = ratorade_db[args.stats]
 updates = ratorade_db[args.updates]
+nrfields = [args.user]
+uqfields = [args.rate, args.rating, "upd"]
+for c in args.catmodel:
+    attr = c['attr']
+    cname = c['coll']
+    c['stats'] = ratorade_db[cname]
+    uqfields += [attr]
 
 # maintain an update timestamp
 timestamps = updates.find_one({"type":"timestamps"})
@@ -73,24 +82,26 @@ if args.refresh:
     last_stat_update = 0
     stats.drop()
     stats = ratorade_db[args.stats]
+    for c in args.catmodel:
+        sys.stdout.write("refreshing stat collection %s\n" % (c['attr']))
+        c['stats'].drop()
+        c['stats'] = ratorade_db[c['coll']]
 
 sys.stdout.write("updating data indexes...\n")
-data.ensure_index([("upd", pymongo.ASCENDING)])
 data.ensure_index([(args.rate, pymongo.ASCENDING)])
-data.ensure_index([(args.user, pymongo.ASCENDING), ("_id", pymongo.ASCENDING)])
-data.ensure_index([("rk0", pymongo.ASCENDING)])
-data.ensure_index([("rk1", pymongo.ASCENDING)])
+data.ensure_index([("upd", pymongo.ASCENDING), (args.user, pymongo.ASCENDING)])
+data.ensure_index([(args.user, pymongo.ASCENDING), ("upd", pymongo.ASCENDING)])
 
 # We need a census of categories to implement some efficiencies
 sys.stdout.write("assessing histogram over %s...\n" % (args.rate))
 uniq = data.distinct(args.rate)
-uhist = dict([(k, data.find({args.rate:k}, fields=[args.rate]).count()) for k in uniq])
+uhist = dict([(k, data.find({args.rate:k}, fields=["_id"]).count()) for k in uniq])
 
 # ratings since the last stat update
 sys.stdout.write("identifying new ratings...\n")
 nrquery = {"upd":{"$gt":last_stat_update}}
 if args.cvholdout is not None: nrquery[args.cvattr] = {'$ne':args.cvholdout}
-new_ratings = data.find(nrquery, fields=[args.user, args.rate, args.rating], timeout=False)
+new_ratings = data.find(nrquery, fields=nrfields, timeout=False).sort([(args.user, pymongo.ASCENDING)])
 nr = new_ratings.count()
 sys.stdout.write("identified %d new ratings\n" % (nr))
 
@@ -102,19 +113,37 @@ tint = 0
 nrdone = 0
 nrdlast = 0
 fsamp = 1.0
-for r0 in new_ratings:
-    nrdone += 1
-    # require a minimum number of ratings for this category to bother collecting stats
-    if uhist[r0[args.rate]] < args.minratings: continue
+prvuser = None
+for nrec in new_ratings:
+    # if we're still in the same user, we can continue
+    if nrec[args.user] == prvuser: continue
+    prvuser = nrec[args.user]
+    # if this is a new user, get the ratings for that user
     query = dbutils.random_sampling_query(fsamp)
-    query["_id"] = {"$lt":r0["_id"]}
-    query[args.user] = r0[args.user]
+    query[args.user] = nrec[args.user]
     if args.cvholdout is not None: query[args.cvattr] = {'$ne':args.cvholdout}
-    qres = data.find(query,fields=[args.rate,args.rating])
-    for r1 in qres:
-        if uhist[r1[args.rate]] < args.minratings: continue
-        ratorade.update_stats_linear(stats, r0, r1, id_attr=args.rate, rating_attr=args.rating)
-        mcount += 1
+    qres = list(data.find(query, fields=uqfields).sort([("upd", pymongo.ASCENDING)]))
+    # outer loop over the new/unseen ratings for this user
+    k = len(qres)-1
+    while k >= 0 and qres[k]["upd"] > last_stat_update:
+        r0 = qres[k]
+        k -= 1
+        nrdone += 1
+        # do these prior to target-specific
+        if len(args.catmodel) > 0:
+            for r1 in qres:
+                # inner loop over older records - ensures pairwise stats are not duplicated
+                if r1["upd"] >= r0["upd"]: break
+                for c in args.catmodel:
+                    ratorade.update_stats_linear(c['stats'], r0, r1, id_attr=c['attr'], rating_attr=args.rating)
+        # require a minimum number of ratings for this category to bother collecting stats
+        if uhist[r0[args.rate]] < args.minratings: continue
+        for r1 in qres:
+            # inner loop over older records - ensures pairwise stats are not duplicated
+            if r1["upd"] >= r0["upd"]: break
+            if uhist[r1[args.rate]] < args.minratings: continue
+            ratorade.update_stats_linear(stats, r0, r1, id_attr=args.rate, rating_attr=args.rating)
+            mcount += 1
     tt = time.time()
     tint += tt-tlast
     tlast = tt
