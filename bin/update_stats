@@ -115,6 +115,7 @@ nrdlast = 0
 fsamp = 1.0
 prvuser = None
 for nrec in new_ratings:
+    nrdone += 1
     # if we're still in the same user, we can continue
     if nrec[args.user] == prvuser: continue
     prvuser = nrec[args.user]
@@ -128,7 +129,6 @@ for nrec in new_ratings:
     while k >= 0 and qres[k]["upd"] > last_stat_update:
         r0 = qres[k]
         k -= 1
-        nrdone += 1
         # do these prior to target-specific
         if len(args.catmodel) > 0:
             for r1 in qres:
