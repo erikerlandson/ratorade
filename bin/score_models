@@ -73,7 +73,8 @@ if args.scores is not None:
 sys.stdout.write("indexing data...\n")
 data.ensure_index([(args.cvattr, pymongo.ASCENDING)])
 data.ensure_index([(args.user, pymongo.ASCENDING)])
-models.ensure_index([("_id.y", pymongo.ASCENDING), ("rr", pymongo.DESCENDING)])
+for t in args.target:
+    t['coll'].ensure_index([("_id.y", pymongo.ASCENDING), ("rr", pymongo.DESCENDING)])
 
 # some scoring stats
 nall = 0
