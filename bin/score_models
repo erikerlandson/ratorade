@@ -26,14 +26,14 @@ import pymongo
 
 import ratorade
 import dbutils
+import argparse_utils
 
 argparser = argparse.ArgumentParser(parents=[dbutils.parser])
-argparser.add_argument('-rate', required=True, metavar='<attr-name>', help='attr containing item categories that are being rated')
+argparser.add_argument('-target', required=True, nargs='*', type=argparse_utils.avpair, action=argparse_utils.append_avpair_dict, default=[], metavar='<avpair>', help='attr:<name> model:<name> ssmin:<N> rrmin:<X>')
 argparser.add_argument('-cv', required=True, type=int, metavar='<N>', help='score crossval fold N')
 argparser.add_argument('-rating', default='rating', metavar='<attr-name>', help='attr containing ratings/scores: def="rating"')
 argparser.add_argument('-user', default='user', metavar='<attr-name>', help='attr containing user ids: def= "user"')
 argparser.add_argument('-data', default='ratings', metavar='<collection-name>', help='rating data collection name: def= "ratings"')
-argparser.add_argument('-models', default='models', metavar='<collection-name>', help='model collection name: def= "models"')
 argparser.add_argument('-ssmin', type=int, default=5, metavar='<N>', help='consider only models with sample size >= N: def= 5')
 argparser.add_argument('-rrmin', type=float, default=0.5, metavar='<X>', help='consider only models with r-squared >= X: def= 0.5')
 argparser.add_argument('-minmodels', type=int, default=1, metavar='<N>', help='require >= N models: def=1')
@@ -52,7 +52,14 @@ ratorade_db = dbutils.require_db(mongo, args.dbname)
 
 # these must exist
 data = dbutils.require_collection(ratorade_db, args.data)
-models = dbutils.require_collection(ratorade_db, args.models)
+cvfields = [args.rating, args.user]
+qfields = [args.rating]
+for t in args.target:
+    t['coll'] = dbutils.require_collection(ratorade_db, t['model'])
+    cvfields += [t['attr']]
+    qfields += [t['attr']]
+    if not t.has_key('ssmin'): t['ssmin'] = args.ssmin
+    if not t.has_key('rrmin'): t['rrmin'] = args.rrmin
 
 # set up scoring data collection
 if args.scores is not None:
@@ -76,37 +83,65 @@ see = 0.0
 
 prvuser = None
 cvquery = {args.cvattr:args.cv}
-cvres = data.find(cvquery, fields=[args.rate, args.rating, args.user], timeout=False).sort([(args.user, pymongo.ASCENDING)])
+cvres = data.find(cvquery, fields=cvfields, timeout=False).sort([(args.user, pymongo.ASCENDING)])
 sys.stdout.write("scoring predictions for %d ratings in cv fold %d\n" % (cvres.count(), args.cv))
 # iterate over the crossval fold:
 for d in cvres:
     nall += 1
     if d[args.user] != prvuser:
         # load the rating data for this user
-        udata = list(data.find({args.user:d[args.user]}, fields=[args.rate, args.rating, args.user]))
-        urmap = dict([(ud[args.rate], ud[args.rating]) for ud in udata])
         prvuser = d[args.user]
+        udata = list(data.find({args.user:d[args.user]}, fields=qfields))
+        atmap = {}
+        for target in args.target:
+            attr = target['attr']
+            atmap[attr] = target
+            target['urmap'] = {}
+            urmap = target['urmap']
+            for u in udata:
+                if not urmap.has_key(u[attr]): urmap[u[attr]] = []
+                urmap[u[attr]] += [u]
     # get all the models from the user's data for this item:
-    query = {"_id.x":{'$in':[x[args.rate] for x in udata if x[args.rate] != d[args.rate]]}, "_id.y":d[args.rate]}
-    query["n"] = {'$gte':args.ssmin}
-    query["rr"] = {'$gte':args.rrmin}
-    qmod = list(models.find(query).sort([("rr",pymongo.DESCENDING)]).limit(args.maxmodels))
+    qmod = []
+    for target in args.target:
+        attr = target['attr']
+        query = {"_id.x":{'$in':[x[attr] for x in udata if x['_id'] != d['_id']]}, "_id.y":d[attr]}
+        query["n"] = {'$gte':target['ssmin']}
+        query["rr"] = {'$gte':target['rrmin']}
+        # inner sort on 'rr' may be redundant now
+        qres = list(target['coll'].find(query).sort([("rr",pymongo.DESCENDING)]).limit(args.maxmodels))
+        # tag models with the category attribute they use
+        # to-do: maybe keep this in the model db itself
+        for m in qres: m['attr'] = attr
+        qmod += qres
     # we can't rate w/out minimum models
     nmodels = len(qmod)
     if nmodels < args.minmodels: continue
+    # sort in descending order of r-squared value, limit by maxmodels
+    qmod = sorted(qmod, key=lambda z: z['rr'], reverse=True)
+    if len(qmod) > args.maxmodels: qmod = qmod[:args.maxmodels]
+    # take a weighted average of model predictions
     sw = 0
     swy = 0
     for m in qmod:
-        y = m["a"]*urmap[m["_id"]["x"]] + m["b"]
-        w = math.pow(m["rr"], args.wexp)
-        sw += w
-        swy += w*y
+        # which target attribute does this model use:
+        target = atmap[m['attr']]
+        # get any 'x' rating values appropriate for this model
+        xv = [z[args.rating] for z in target['urmap'][m['_id']['x']] if z['_id'] != d['_id']]
+        for x in xv:
+            # apply the model to the x values to get predictions:
+            y = m["a"]*x + m["b"]
+            w = math.pow(m["rr"], args.wexp)
+            sw += w
+            swy += w*y
+    # final prediction is weighted average of individual model predictions:
     pred = swy/sw
     truth = d[args.rating]
     err = math.fabs(pred-truth)
     n += 1
     se += err
     see += err*err
+    # save scoring data in table if requested:
     if args.scores is not None:
         scores.save({args.rating:truth, "pred":pred, "err":pred-truth, "abserr":err, "cvf":args.cv, "nmod": nmodels, "rrmax":qmod[0]["rr"], "rrmin":qmod[-1]["rr"], "rrmed":qmod[len(qmod)/2]["rr"]})
 
