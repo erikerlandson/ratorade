@@ -42,6 +42,7 @@ argparser.add_argument('-updates', default='updates', metavar='<collection-name>
 argparser.add_argument('-chkint', type=float, default=300, metavar='<N>', help='self check interval N seconds: def= 300')
 
 args = argparser.parse_args()
+sys.stdout.write("CL:\n%s\nargs:\n%r\n" % (" ".join(sys.argv), args))
 
 t00 = time.time()
 

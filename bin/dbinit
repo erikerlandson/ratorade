@@ -45,6 +45,8 @@ argparser.add_argument('-crossval', type=int, default=0, metavar='<N>', help='pa
 argparser.add_argument('-cvattr', default="cvf", metavar='<attr>', help='use "attr" for crossval fold: def= "cvf"')
 
 args = argparser.parse_args()
+sys.stdout.write("CL:\n%s\nargs:\n%r\n" % (" ".join(sys.argv), args))
+
 useheader = (args.attributes == "header")
 
 mongo = dbutils.require_connection(args.dbserver)

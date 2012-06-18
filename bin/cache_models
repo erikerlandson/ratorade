@@ -36,6 +36,7 @@ argparser.add_argument('-absamax', type=float, metavar='<X>', help='cache only m
 argparser.add_argument('-absbmax', type=float, metavar='<X>', help='cache only models with const |b| <= X')
 
 args = argparser.parse_args()
+sys.stdout.write("CL:\n%s\nargs:\n%r\n" % (" ".join(sys.argv), args))
 
 t00 = time.time()
 

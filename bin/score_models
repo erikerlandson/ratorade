@@ -44,6 +44,7 @@ argparser.add_argument('-scores', metavar='<collection-name>', help='store scori
 argparser.add_argument('-refresh', default=False, action='store_true', help='refresh scores collection')
 
 args = argparser.parse_args()
+sys.stdout.write("CL:\n%s\nargs:\n%r\n" % (" ".join(sys.argv), args))
 
 t00 = time.time()
 
@@ -79,6 +80,7 @@ for t in args.target:
 # some scoring stats
 nall = 0
 n = 0
+nur = 0
 se = 0.0
 see = 0.0
 
@@ -88,11 +90,11 @@ cvres = data.find(cvquery, fields=cvfields, timeout=False).sort([(args.user, pym
 sys.stdout.write("scoring predictions for %d ratings in cv fold %d\n" % (cvres.count(), args.cv))
 # iterate over the crossval fold:
 for d in cvres:
-    nall += 1
     if d[args.user] != prvuser:
-        # load the rating data for this user
+        # load all the rating data for this user
         prvuser = d[args.user]
         udata = list(data.find({args.user:d[args.user]}, fields=qfields))
+        # organize user's rating data for model applications:
         atmap = {}
         for target in args.target:
             attr = target['attr']
@@ -102,6 +104,14 @@ for d in cvres:
             for u in udata:
                 if not urmap.has_key(u[attr]): urmap[u[attr]] = []
                 urmap[u[attr]] += [u]
+    # if user only had this one rating in the cv holdout set, I won't count it,
+    # since it is as if that user has no ratings at all from the holdout fold's persepctive,
+    # and I don't expect any algorithm to rate items with no existing ratings to work with.
+    if len(udata) <= 1:
+        nur += 1
+        continue
+    # this user counts as fair game, since it has at least one additional rating that could be used
+    nall += 1
     # get all the models from the user's data for this item:
     qmod = []
     for target in args.target:
@@ -149,7 +159,7 @@ for d in cvres:
 sys.stdout.write("total run time: %d sec\n" % (int(time.time()-t00)))
 
 # output stats
-sys.stdout.write("total rated: %d/%d (%g)\n" % (n, nall, float(n)/float(nall)))
+sys.stdout.write("total rated: %d/%d (%.3g)  unratable: %d  total fold: %d\n" % (n, nall, float(n)/float(nall), nur, nall+nur))
 emean = float(se)/float(n)
 sys.stdout.write("mean abs err: %g\n" % (emean))
 estdv = math.sqrt((n*see - se*se)/float(n*(n-1)))
