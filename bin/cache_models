@@ -61,4 +61,7 @@ sys.stdout.write("caching model parameters to %s...\n" % (args.models))
 for srec in stats.find(statquery, fields=["n","s0","s1","s00","s11","s01"]):
     ratorade.update_model_linear(models, srec, ssmin=args.ssmin, rrmin=args.rrmin, absamax=args.absamax, absbmax=args.absbmax)
 
+nmod = models.count()
+nstat = stats.count()
+sys.stdout.write("cached %d/%d (%.3g) models from %d stats\n" % (nmod, 2*nstat, float(nmod)/float(2*nstat), nstat))
 sys.stdout.write("total run time: %d sec\n" % (int(time.time()-t00)))
