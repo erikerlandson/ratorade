@@ -28,6 +28,9 @@ import bson
 
 import dbutils
 
+def round(x, z=1.0):
+    return floor((float(x)/z)+0.5)*z
+
 def histogram(collection, keylist, histname, kdelim=":", numeric=False, bins=0, kmin=None, kmax=None):
     if bins>0: numeric=True
     if numeric and (len(keylist) > 1):

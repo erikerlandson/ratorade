@@ -39,6 +39,7 @@ argparser.add_argument('-rrmin', type=float, default=0.5, metavar='<X>', help='c
 argparser.add_argument('-minmodels', type=int, default=1, metavar='<N>', help='require >= N models: def=1')
 argparser.add_argument('-maxmodels', type=int, default=30, metavar='<N>', help='consider a maximum of N models: def=30')
 argparser.add_argument('-wexp', type=float, default=1.0, metavar='<X>', help='weight models by w = rr^X: def= 1')
+argparser.add_argument('-round', type=float, default=None, metavar='<X>', help='round predictions to nearest multiple of X')
 argparser.add_argument('-cvattr', default="cvf", metavar='<attr>', help='use "attr" for crossval fold: def= "cvf"')
 argparser.add_argument('-scores', metavar='<collection-name>', help='store scoring information to collection')
 argparser.add_argument('-refresh', default=False, action='store_true', help='refresh scores collection')
@@ -147,6 +148,7 @@ for d in cvres:
             swy += w*y
     # final prediction is weighted average of individual model predictions:
     pred = swy/sw
+    if args.round is not None: pred = ratorade.round(pred, z=args.round)
     truth = d[args.rating]
     err = math.fabs(pred-truth)
     n += 1
