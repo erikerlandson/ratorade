@@ -1,0 +1,79 @@
+#!/bin/env python
+
+# ratorade: Everyone's a critic
+#
+# Copyright (c) 2013 Erik Erlandson
+#
+# Author:  Erik Erlandson <erikerlandson@yahoo.com>
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import sys
+import time
+import argparse
+import pymongo
+
+import ratorade
+import dbutils
+import argparse_utils
+
+argparser = argparse.ArgumentParser(parents=[dbutils.parser])
+argparser.add_argument('collection', metavar='<collection-name>', help='collection name')
+argparser.add_argument('attributes', nargs='+', metavar='<attribute>', help='list of attributes: attr1 [attr2 ...]')
+argparser.add_argument('-prefix', default='idxmap_', metavar='<prefix>', help='prefix for index mapping tables')
+
+args = argparser.parse_args()
+sys.stdout.write("CL:\n%s\nargs:\n%r\n" % (" ".join(sys.argv), args))
+
+t00 = time.time()
+
+mongo = dbutils.require_connection(args.dbserver)
+db = dbutils.require_db(mongo, args.dbname)
+collection = dbutils.require_collection(db, args.collection)
+
+mapcolls = {}
+mcmissing = {}
+mcid = {}
+mcmap = {}
+for attr in args.attributes:
+    mapname = args.prefix + attr
+    sys.stdout.write("creating index map %s for %s...\n" % (mapname, attr))
+    db.drop_collection(mapname)
+    mapcolls[attr] = db[mapname]
+    mcmissing[attr] = 0
+    mcid[attr] = 0
+    mcmap[attr] = set()
+
+qres = collection.find({}, fields=args.attributes)
+sys.stdout.write("scanning %d records from %s...\n" % (qres.count(), collection.name))
+
+for rec in qres:
+    for attr in args.attributes:
+        if not rec.has_key(attr):
+            mcmissing[attr] += 1
+            continue
+        v = rec[attr]
+        if v in mcmap[attr]: continue
+        mcmap[attr].add(v)
+        mapcolls[attr].save({'_id': v, 'idx':mcid[attr]})
+        mcid[attr] += 1
+
+for k in mcmissing:
+    if mcmissing[k] > 0:
+        sys.stderr.write("WARNING: attribute %s had %d missing values\n" % (k, mcmissing[k]))
+
+for k in mapcolls:
+    mc = mapcolls[k]
+    sys.stdout.write("map index table %s has %d entries\n" % (mc.name, mc.count()))
+
+sys.stdout.write("total run time: %d sec\n" % (int(time.time()-t00)))
